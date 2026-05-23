@@ -16,13 +16,13 @@ const C = {
   navy:   "#0F2240",
   blue:   "#1A3C5E",
   teal:   "#0D7377",
-  green:  "#143A26", // Verde mais escuro para o fundo
+  green:  "#143A26", 
   gold:   "#C89B3C",
   red:    "#C0392B",
   purple: "#6B3FA0",
-  bg:     "#081C15", // Fundo verde floresta bem escuro
-  card:   "#111E35",
-  border: "#1E3050",
+  bg:     "#081C15", 
+  card:   "rgba(17, 30, 53, 0.65)", // Card semi-transparente
+  border: "rgba(30, 48, 80, 0.5)",
   text:   "#E8EDF5",
   muted:  "#7A90B0",
 };
@@ -52,10 +52,16 @@ const globalCss = `
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
     background: url('logo.png') no-repeat center center;
-    background-size: 40%;
-    opacity: 0.04; /* Efeito de marca d'água bem suave */
+    background-size: 50%; /* Aumentei um pouco para aparecer mais */
+    opacity: 0.08; /* Aumentei a visibilidade da marca d'água */
     pointer-events: none;
     z-index: -1;
+  }
+
+  /* Efeito de vidro para os cards */
+  .glass-card {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 
   ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: ${C.bg}; }
@@ -82,7 +88,7 @@ const globalCss = `
 
 // ─── COMPONENTES BASE ───────────────────────────────────────────
 const Card = ({ children, style, className }) => (
-  <div className={className} style={{
+  <div className={`glass-card ${className || ""}`} style={{
     background: C.card, border: `1px solid ${C.border}`,
     borderRadius: 16, padding: 24, ...style
   }}>{children}</div>
