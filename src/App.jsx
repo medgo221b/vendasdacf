@@ -1,0 +1,981 @@
+import { useState, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
+import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer, Cell
+} from "recharts";
+
+// ─── CONFIG ─────────────────────────────────────────────────────
+// Substitua pelos seus valores do Supabase (Settings → API)
+const SUPABASE_URL = "https://hngneexnuyjwisvhtavk.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhuZ25lZXhudXlqd2lzdmh0YXZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxNjQ4NzQsImV4cCI6MjA5Mjc0MDg3NH0.FFOZLP0t8H9lH6LvRN-G3GSMnjR-mIQW-RQ8GXRs5vA"; // cole a chave completa
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ─── CORES ──────────────────────────────────────────────────────
+const C = {
+  navy:   "#0F2240",
+  blue:   "#1A3C5E",
+  teal:   "#0D7377",
+  green:  "#217346",
+  gold:   "#C89B3C",
+  red:    "#C0392B",
+  purple: "#6B3FA0",
+  bg:     "#0A1628",
+  card:   "#111E35",
+  border: "#1E3050",
+  text:   "#E8EDF5",
+  muted:  "#7A90B0",
+};
+
+// ─── UTILITÁRIOS ────────────────────────────────────────────────
+const fmtR = (v) =>
+  `R$ ${Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+const fmtP = (v) => (v != null ? `${Number(v).toFixed(1)}%` : "—");
+const hoje = () => new Date().toISOString().split("T")[0];
+
+// ─── ESTILOS GLOBAIS ────────────────────────────────────────────
+const globalCss = `
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: ${C.bg}; color: ${C.text}; font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: ${C.bg}; }
+  ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
+  input, select, textarea { font-family: inherit; }
+  button { cursor: pointer; font-family: inherit; }
+`;
+
+// ─── COMPONENTES BASE ───────────────────────────────────────────
+const Card = ({ children, style }) => (
+  <div style={{
+    background: C.card, border: `1px solid ${C.border}`,
+    borderRadius: 16, padding: 24, ...style
+  }}>{children}</div>
+);
+
+const Btn = ({ children, onClick, variant = "primary", disabled, style, type = "button" }) => {
+  const styles = {
+    primary:  { background: C.teal,  color: "#fff" },
+    success:  { background: C.green, color: "#fff" },
+    danger:   { background: C.red,   color: "#fff" },
+    ghost:    { background: "transparent", color: C.muted, border: `1px solid ${C.border}` },
+  };
+  return (
+    <button type={type} onClick={onClick} disabled={disabled} style={{
+      padding: "10px 20px", borderRadius: 10, border: "none",
+      fontWeight: 600, fontSize: 14, transition: "all .2s",
+      opacity: disabled ? 0.5 : 1, ...styles[variant], ...style
+    }}>{children}</button>
+  );
+};
+
+const Input = ({ label, ...props }) => (
+  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    {label && <label style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>{label}</label>}
+    <input {...props} style={{
+      background: "#0A1628", border: `1px solid ${C.border}`, borderRadius: 10,
+      padding: "10px 14px", color: C.text, fontSize: 14, outline: "none",
+      transition: "border .2s", ...props.style
+    }} />
+  </div>
+);
+
+const Select = ({ label, children, ...props }) => (
+  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    {label && <label style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>{label}</label>}
+    <select {...props} style={{
+      background: "#0A1628", border: `1px solid ${C.border}`, borderRadius: 10,
+      padding: "10px 14px", color: C.text, fontSize: 14, outline: "none", ...props.style
+    }}>{children}</select>
+  </div>
+);
+
+const Badge = ({ children, color = C.teal }) => (
+  <span style={{
+    background: color + "22", color, border: `1px solid ${color}44`,
+    borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 600
+  }}>{children}</span>
+);
+
+const StatCard = ({ label, value, sub, color = C.teal, icon }) => (
+  <Card>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div>
+        <p style={{ fontSize: 12, color: C.muted, marginBottom: 8, fontWeight: 500 }}>{label}</p>
+        <p style={{ fontSize: 26, fontWeight: 800, fontFamily: "Syne", color }}>{value}</p>
+        {sub && <p style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{sub}</p>}
+      </div>
+      <span style={{ fontSize: 28, opacity: 0.7 }}>{icon}</span>
+    </div>
+  </Card>
+);
+
+const Alert = ({ msg, type = "error", onClose }) => type && msg ? (
+  <div style={{
+    padding: "12px 16px", borderRadius: 10, marginBottom: 16, fontSize: 14,
+    background: type === "error" ? "#C0392B22" : "#21734622",
+    border: `1px solid ${type === "error" ? "#C0392B66" : "#21734666"}`,
+    color: type === "error" ? "#FF6B6B" : "#4CAF50",
+    display: "flex", justifyContent: "space-between", alignItems: "center"
+  }}>
+    {msg}
+    {onClose && <button onClick={onClose} style={{ background: "none", border: "none", color: "inherit", fontSize: 18 }}>×</button>}
+  </div>
+) : null;
+
+// ─── LOGIN ──────────────────────────────────────────────────────
+function Login({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro]   = useState("");
+  const [load, setLoad]   = useState(false);
+
+  const entrar = async (e) => {
+    e.preventDefault();
+    setErro(""); setLoad(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
+    if (error) setErro("Email ou senha incorretos.");
+    else onLogin();
+    setLoad(false);
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: `radial-gradient(ellipse at 30% 50%, ${C.navy} 0%, ${C.bg} 70%)`
+    }}>
+      <div style={{ width: "100%", maxWidth: 400, padding: 24 }}>
+        <div style={{ textAlign: "center", marginBottom: 40 }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🛒</div>
+          <h1 style={{ fontFamily: "Syne", fontSize: 28, fontWeight: 800, color: C.text }}>
+            Vendas D.A.
+          </h1>
+          <p style={{ color: C.muted, fontSize: 14, marginTop: 6 }}>Sistema de Gestão 2025</p>
+        </div>
+        <Card>
+          <form onSubmit={entrar} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <Alert msg={erro} type="error" onClose={() => setErro("")} />
+            <Input label="Email" type="email" value={email}
+              onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" required />
+            <Input label="Senha" type="password" value={senha}
+              onChange={e => setSenha(e.target.value)} placeholder="••••••••" required />
+            <Btn type="submit" disabled={load} style={{ width: "100%", padding: 14, marginTop: 8 }}>
+              {load ? "Entrando..." : "Entrar"}
+            </Btn>
+          </form>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ─── SIDEBAR ────────────────────────────────────────────────────
+const TABS = [
+  { id: "dashboard", label: "Dashboard",  icon: "📊" },
+  { id: "vendas",    label: "Nova Venda", icon: "🆕" },
+  { id: "produtos",  label: "Produtos",   icon: "📦" },
+  { id: "historico", label: "Histórico",  icon: "🗂️" },
+];
+
+function Sidebar({ tab, setTab, onLogout, user }) {
+  return (
+    <aside style={{
+      width: 220, minHeight: "100vh", background: C.card,
+      borderRight: `1px solid ${C.border}`, display: "flex",
+      flexDirection: "column", position: "fixed", top: 0, left: 0, zIndex: 100
+    }}>
+      <div style={{ padding: "28px 20px 20px", borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 28, marginBottom: 6 }}>🛒</div>
+        <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 16, color: C.text }}>
+          Vendas D.A.
+        </h2>
+        <p style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Gestão 2025</p>
+      </div>
+
+      <nav style={{ flex: 1, padding: "16px 12px" }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 10,
+            padding: "11px 14px", borderRadius: 10, border: "none", marginBottom: 4,
+            background: tab === t.id ? C.teal + "22" : "transparent",
+            color: tab === t.id ? C.teal : C.muted,
+            fontWeight: tab === t.id ? 600 : 400, fontSize: 14, transition: "all .2s",
+            borderLeft: tab === t.id ? `3px solid ${C.teal}` : "3px solid transparent"
+          }}>
+            <span>{t.icon}</span> {t.label}
+          </button>
+        ))}
+      </nav>
+
+      <div style={{ padding: "16px", borderTop: `1px solid ${C.border}` }}>
+        <p style={{ fontSize: 11, color: C.muted, marginBottom: 8, wordBreak: "break-all" }}>
+          {user?.email}
+        </p>
+        <Btn variant="ghost" onClick={onLogout} style={{ width: "100%", fontSize: 13 }}>
+          Sair
+        </Btn>
+      </div>
+    </aside>
+  );
+}
+
+// ─── DASHBOARD ──────────────────────────────────────────────────
+function Dashboard() {
+  const [stats, setStats]    = useState(null);
+  const [vendas, setVendas]  = useState([]);
+  const [prods, setProds]    = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    const [{ data: v }, { data: p }] = await Promise.all([
+      supabase.from("vendas").select("*").eq("status", "Pago e Entregue"),
+      supabase.from("dashboard_produtos").select("*"),
+    ]);
+
+    const vs = v || []; const ps = p || [];
+
+    // Calcula stats
+    const totalGeral = vs.reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
+    const totalItens = vs.reduce((s, r) => s + r.quantidade, 0);
+    const custoMap   = Object.fromEntries(ps.map(p => [p.id, p.preco_custo]));
+    const totalCusto = vs.reduce((s, r) => s + (custoMap[r.produto_id] || 0) * r.quantidade, 0);
+    const totalLucro = totalGeral - totalCusto;
+
+    // Agrupa por dia (últimos 14 dias)
+    const diasMap = {};
+    vs.forEach(r => {
+      const d = r.data_venda;
+      if (!diasMap[d]) diasMap[d] = { data: d, receita: 0, itens: 0 };
+      diasMap[d].receita += r.preco_venda * r.quantidade;
+      diasMap[d].itens   += r.quantidade;
+    });
+    const porDia = Object.values(diasMap)
+      .sort((a, b) => a.data.localeCompare(b.data))
+      .slice(-14)
+      .map(d => ({ ...d, data: d.data.slice(5).replace("-", "/") }));
+
+    // Hoje
+    const dataHoje = hoje();
+    const totalHoje = vs.filter(r => r.data_venda === dataHoje)
+      .reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
+
+    setStats({ totalGeral, totalItens, totalPedidos: vs.length, totalLucro, totalHoje,
+               margemGeral: totalGeral > 0 ? (totalLucro / totalGeral * 100).toFixed(1) : 0 });
+    setVendas(porDia);
+    setProds(ps.sort((a, b) => (b.total_vendido || 0) - (a.total_vendido || 0)).slice(0, 8));
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    carregar();
+    // Realtime
+    const ch = supabase.channel("dashboard")
+      .on("postgres_changes", { event: "*", schema: "public", table: "vendas" }, carregar)
+      .on("postgres_changes", { event: "*", schema: "public", table: "produtos" }, carregar)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [carregar]);
+
+  if (loading) return <div style={{ color: C.muted, padding: 40 }}>Carregando...</div>;
+
+  return (
+    <div>
+      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>
+        Dashboard
+      </h1>
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+        <StatCard label="Total Arrecadado" value={fmtR(stats.totalGeral)} icon="💰" color={C.green} />
+        <StatCard label="Lucro Estimado"   value={fmtR(stats.totalLucro)} icon="📈"
+          color={stats.totalLucro >= 0 ? C.teal : C.red} />
+        <StatCard label="Margem Geral"     value={fmtP(stats.margemGeral)} icon="%" color={C.purple} />
+        <StatCard label="Vendas Hoje"      value={fmtR(stats.totalHoje)} icon="📅" color={C.gold} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
+        <StatCard label="Itens Vendidos"  value={stats.totalItens}    icon="📦" color={C.muted} />
+        <StatCard label="Nº de Vendas"    value={stats.totalPedidos}  icon="🧾" color={C.muted} />
+        <StatCard label="Ticket Médio"    icon="🎯" color={C.muted}
+          value={stats.totalPedidos > 0 ? fmtR(stats.totalGeral / stats.totalPedidos) : "—"} />
+      </div>
+
+      {/* Gráficos */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginBottom: 24 }}>
+        <Card>
+          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>
+            Receita por Dia
+          </h3>
+          {vendas.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={vendas}>
+                <defs>
+                  <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={C.teal} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={C.teal} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                <XAxis dataKey="data" tick={{ fill: C.muted, fontSize: 11 }} />
+                <YAxis tick={{ fill: C.muted, fontSize: 11 }}
+                  tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
+                <Tooltip
+                  contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8 }}
+                  formatter={v => [fmtR(v), "Receita"]} />
+                <Area type="monotone" dataKey="receita" stroke={C.teal}
+                  strokeWidth={2} fill="url(#grad)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : <p style={{ color: C.muted, textAlign: "center", paddingTop: 60 }}>Sem dados ainda</p>}
+        </Card>
+
+        <Card>
+          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>
+            Top Produtos
+          </h3>
+          {prods.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={prods} layout="vertical" margin={{ left: -10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                <XAxis type="number" tick={{ fill: C.muted, fontSize: 11 }} />
+                <YAxis type="category" dataKey="nome" width={90}
+                  tick={{ fill: C.muted, fontSize: 10 }}
+                  tickFormatter={v => v.length > 12 ? v.slice(0, 12) + "…" : v} />
+                <Tooltip
+                  contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8 }}
+                  formatter={v => [v + " un.", "Vendido"]} />
+                <Bar dataKey="total_vendido" radius={[0, 6, 6, 0]}>
+                  {prods.map((_, i) => (
+                    <Cell key={i} fill={[C.teal, C.green, C.purple, C.gold, C.blue][i % 5]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <p style={{ color: C.muted, textAlign: "center", paddingTop: 60 }}>Sem dados ainda</p>}
+        </Card>
+      </div>
+
+      {/* Tabela produtos com margem */}
+      <Card>
+        <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 15 }}>
+          Estoque e Margem
+        </h3>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                {["Produto","Est.","Vendido","Receita","Margem %","Margem DA %","Status"].map(h => (
+                  <th key={h} style={{ padding: "8px 12px", color: C.muted, fontWeight: 500,
+                    textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {prods.map((p, i) => {
+                const estColor = p.status_estoque === "Esgotado" ? C.red
+                  : p.status_estoque === "Baixo" ? C.gold : C.green;
+                return (
+                  <tr key={p.id} style={{
+                    borderBottom: `1px solid ${C.border}22`,
+                    background: i % 2 === 0 ? "transparent" : "#ffffff04"
+                  }}>
+                    <td style={{ padding: "10px 12px", fontWeight: 500 }}>{p.nome}</td>
+                    <td style={{ padding: "10px 12px", color: estColor, fontWeight: 700 }}>
+                      {p.estoque_atual}
+                    </td>
+                    <td style={{ padding: "10px 12px", color: C.muted }}>{p.total_vendido || 0}</td>
+                    <td style={{ padding: "10px 12px" }}>{fmtR(p.receita_total)}</td>
+                    <td style={{ padding: "10px 12px" }}>
+                      {p.margem_normal_pct != null ? (
+                        <span style={{
+                          color: p.margem_normal_pct < 20 ? C.red
+                            : p.margem_normal_pct >= 40 ? C.green : C.gold
+                        }}>{fmtP(p.margem_normal_pct)}</span>
+                      ) : "—"}
+                    </td>
+                    <td style={{ padding: "10px 12px" }}>
+                      {p.margem_da_pct != null ? (
+                        <span style={{ color: C.purple }}>{fmtP(p.margem_da_pct)}</span>
+                      ) : "—"}
+                    </td>
+                    <td style={{ padding: "10px 12px" }}>
+                      <Badge color={estColor}>{p.status_estoque}</Badge>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ─── NOVA VENDA ─────────────────────────────────────────────────
+function NovaVenda() {
+  const [prods, setProds]       = useState([]);
+  const [itens, setItens]       = useState([{ prodId: "", qtd: 1 }]);
+  const [comprador, setComprador] = useState("");
+  const [turma, setTurma]       = useState("");
+  const [data, setData]         = useState(hoje());
+  const [pgto, setPgto]         = useState("Pix");
+  const [msg, setMsg]           = useState(null);
+  const [load, setLoad]         = useState(false);
+
+  useEffect(() => {
+    supabase.from("produtos").select("*").eq("ativo", true)
+      .then(({ data }) => setProds(data || []));
+  }, []);
+
+  const addItem  = () => setItens([...itens, { prodId: "", qtd: 1 }]);
+  const remItem  = (i) => setItens(itens.filter((_, j) => j !== i));
+  const setItem  = (i, field, val) =>
+    setItens(itens.map((it, j) => j === i ? { ...it, [field]: val } : it));
+
+  const getProd  = (id) => prods.find(p => p.id === id);
+  const usados   = (idx) => new Set(itens.filter((_, j) => j !== idx).map(it => it.prodId));
+
+  const total    = itens.reduce((s, it) => {
+    const p = getProd(it.prodId);
+    return s + (p ? p.preco_normal * it.qtd : 0);
+  }, 0);
+
+  const registrar = async () => {
+    const validos = itens.filter(it => it.prodId);
+    if (!comprador.trim()) return setMsg({ t: "error", v: "Informe o nome do comprador." });
+    if (!data)             return setMsg({ t: "error", v: "Selecione a data." });
+    if (!validos.length)   return setMsg({ t: "error", v: "Adicione ao menos um produto." });
+
+    setLoad(true); setMsg(null);
+    let erros = [];
+
+    for (const it of validos) {
+      const { data: res } = await supabase.rpc("registrar_venda", {
+        p_produto_id: it.prodId, p_comprador: comprador.trim(),
+        p_turma: turma.trim(), p_data_venda: data,
+        p_preco_venda: getProd(it.prodId)?.preco_normal || 0,
+        p_quantidade: it.qtd, p_forma_pagamento: pgto,
+      });
+      if (!res?.ok) erros.push(res?.erro || "Erro desconhecido");
+    }
+
+    if (erros.length) {
+      setMsg({ t: "error", v: erros.join(" | ") });
+    } else {
+      setMsg({ t: "success", v: `${validos.length} produto(s) registrado(s)!` });
+      setItens([{ prodId: "", qtd: 1 }]);
+      setComprador(""); setTurma(""); setData(hoje());
+      // Atualiza lista de produtos para refletir estoque
+      const { data: ps } = await supabase.from("produtos").select("*").eq("ativo", true);
+      setProds(ps || []);
+    }
+    setLoad(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 680 }}>
+      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>
+        🆕 Nova Venda
+      </h1>
+
+      <Card style={{ marginBottom: 16 }}>
+        <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 14,
+          color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>Dados do pedido</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ gridColumn: "1/-1" }}>
+            <Input label="Nome do comprador *" value={comprador}
+              onChange={e => setComprador(e.target.value)} placeholder="Ex: Maria Clara" />
+          </div>
+          <Input label="Turma" value={turma}
+            onChange={e => setTurma(e.target.value)} placeholder="Ex: T9" />
+          <Input label="Data *" type="date" value={data}
+            onChange={e => setData(e.target.value)} />
+          <Select label="Forma de pagamento" value={pgto}
+            onChange={e => setPgto(e.target.value)} style={{ gridColumn: "1/-1" }}>
+            {["Pix","Dinheiro","Cartão","Transferência"].map(o => <option key={o}>{o}</option>)}
+          </Select>
+        </div>
+      </Card>
+
+      <Card style={{ marginBottom: 16 }}>
+        <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 14,
+          color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>Produtos</h3>
+
+        {itens.map((it, i) => {
+          const prod = getProd(it.prodId);
+          const exc  = usados(i);
+          return (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 36px",
+              gap: 8, marginBottom: 12, alignItems: "end" }}>
+              <div>
+                <Select label={i === 0 ? "Produto" : ""} value={it.prodId}
+                  onChange={e => setItem(i, "prodId", e.target.value)}>
+                  <option value="">Selecionar...</option>
+                  {prods.filter(p => !exc.has(p.id) || p.id === it.prodId).map(p => (
+                    <option key={p.id} value={p.id} disabled={p.estoque_atual <= 0}>
+                      {p.nome} {p.estoque_atual <= 0 ? "(esgotado)" : `(${p.estoque_atual} un.)`}
+                    </option>
+                  ))}
+                </Select>
+                {prod && (
+                  <p style={{ fontSize: 11, marginTop: 4,
+                    color: prod.estoque_atual <= 0 ? C.red
+                      : prod.estoque_atual <= 2 ? C.gold : C.green }}>
+                    {prod.estoque_atual <= 0 ? "⚠️ Esgotado"
+                      : `✓ ${prod.estoque_atual} un. | ${fmtR(prod.preco_normal)}`}
+                  </p>
+                )}
+              </div>
+              <Input label={i === 0 ? "Qtd" : ""} type="number" min={1}
+                max={prod?.estoque_atual || 999} value={it.qtd}
+                onChange={e => setItem(i, "qtd", parseInt(e.target.value) || 1)}
+                style={{ textAlign: "center" }} />
+              <button onClick={() => remItem(i)} style={{
+                background: "#C0392B22", border: `1px solid ${C.red}44`, borderRadius: 8,
+                color: C.red, width: 36, height: 36, fontSize: 18 }}>×</button>
+            </div>
+          );
+        })}
+
+        <Btn variant="ghost" onClick={addItem} style={{ width: "100%", marginBottom: 16 }}>
+          + Adicionar produto
+        </Btn>
+
+        <div style={{ background: C.blue + "33", borderRadius: 12, padding: "14px 20px",
+          display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ color: C.muted }}>Total do pedido</span>
+          <span style={{ fontFamily: "Syne", fontSize: 22, fontWeight: 800, color: C.teal }}>
+            {fmtR(total)}
+          </span>
+        </div>
+      </Card>
+
+      <Alert msg={msg?.v} type={msg?.t} onClose={() => setMsg(null)} />
+      <Btn variant="success" onClick={registrar} disabled={load}
+        style={{ width: "100%", padding: 14, fontSize: 15 }}>
+        {load ? "Registrando..." : "✅ Registrar Venda"}
+      </Btn>
+    </div>
+  );
+}
+
+// ─── PRODUTOS ───────────────────────────────────────────────────
+function Produtos() {
+  const [prods, setProds]   = useState([]);
+  const [form, setForm]     = useState({ nome: "", estoque_inicial: 0, preco_normal: "",
+    preco_da: "", preco_custo: "" });
+  const [msg, setMsg]       = useState(null);
+  const [load, setLoad]     = useState(false);
+  const [editId, setEditId] = useState(null);
+
+  const carregar = async () => {
+    const { data } = await supabase.from("dashboard_produtos").select("*")
+      .order("nome");
+    setProds(data || []);
+  };
+
+  useEffect(() => {
+    carregar();
+    const ch = supabase.channel("produtos_ch")
+      .on("postgres_changes", { event: "*", schema: "public", table: "produtos" }, carregar)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  const salvar = async () => {
+    if (!form.nome.trim())        return setMsg({ t: "error", v: "Informe o nome." });
+    if (!Number(form.preco_normal)) return setMsg({ t: "error", v: "Informe o preço de venda." });
+    setLoad(true); setMsg(null);
+
+    const payload = {
+      nome:            form.nome.trim(),
+      estoque_inicial: Number(form.estoque_inicial) || 0,
+      estoque_atual:   editId ? undefined : Number(form.estoque_inicial) || 0,
+      preco_normal:    Number(form.preco_normal) || 0,
+      preco_da:        Number(form.preco_da)     || 0,
+      preco_custo:     Number(form.preco_custo)  || 0,
+    };
+    if (editId) delete payload.estoque_atual;
+
+    const { error } = editId
+      ? await supabase.from("produtos").update(payload).eq("id", editId)
+      : await supabase.from("produtos").insert(payload);
+
+    if (error) {
+      setMsg({ t: "error", v: error.message.includes("unique")
+        ? `Produto "${form.nome}" já existe.` : error.message });
+    } else {
+      setMsg({ t: "success", v: editId ? "Produto atualizado!" : `"${form.nome}" cadastrado!` });
+      setForm({ nome: "", estoque_inicial: 0, preco_normal: "", preco_da: "", preco_custo: "" });
+      setEditId(null);
+      carregar();
+    }
+    setLoad(false);
+  };
+
+  const editar = (p) => {
+    setEditId(p.id);
+    setForm({ nome: p.nome, estoque_inicial: p.estoque_inicial,
+      preco_normal: p.preco_normal, preco_da: p.preco_da, preco_custo: p.preco_custo });
+  };
+
+  const F = (field, label, opts = {}) => (
+    <Input label={label} value={form[field]}
+      onChange={e => setForm({ ...form, [field]: e.target.value })}
+      {...opts} />
+  );
+
+  return (
+    <div>
+      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>
+        📦 Produtos
+      </h1>
+      <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 20, alignItems: "start" }}>
+
+        {/* Formulário */}
+        <Card>
+          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 14,
+            color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>
+            {editId ? "✏️ Editar Produto" : "➕ Novo Produto"}
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Alert msg={msg?.v} type={msg?.t} onClose={() => setMsg(null)} />
+            {F("nome", "Nome do produto *", { placeholder: "Ex: Camiseta Preta XG" })}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {F("estoque_inicial", "Estoque inicial", { type: "number", min: 0 })}
+              {F("preco_normal", "Preço venda (R$) *", { type: "number", step: "0.01", placeholder: "0,00" })}
+              {F("preco_da", "Preço DA (R$)", { type: "number", step: "0.01", placeholder: "0,00" })}
+              {F("preco_custo", "Preço custo (R$)", { type: "number", step: "0.01", placeholder: "0,00" })}
+            </div>
+            <p style={{ fontSize: 11, color: C.muted }}>O custo calcula a margem de lucro no Dashboard.</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="success" onClick={salvar} disabled={load} style={{ flex: 1 }}>
+                {load ? "Salvando..." : editId ? "Salvar alterações" : "Cadastrar produto"}
+              </Btn>
+              {editId && (
+                <Btn variant="ghost" onClick={() => { setEditId(null);
+                  setForm({ nome:"",estoque_inicial:0,preco_normal:"",preco_da:"",preco_custo:""}); }}>
+                  ✕
+                </Btn>
+              )}
+            </div>
+          </div>
+        </Card>
+
+        {/* Tabela */}
+        <Card>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                  {["Produto","Est.","Preço","Custo","Margem%","Margem DA%","Status",""].map(h => (
+                    <th key={h} style={{ padding: "8px 10px", color: C.muted,
+                      fontWeight: 500, textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {prods.map((p, i) => {
+                  const estColor = p.status_estoque === "Esgotado" ? C.red
+                    : p.status_estoque === "Baixo" ? C.gold : C.green;
+                  return (
+                    <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}22`,
+                      background: i % 2 === 0 ? "transparent" : "#ffffff04" }}>
+                      <td style={{ padding: "9px 10px", fontWeight: 500 }}>{p.nome}</td>
+                      <td style={{ padding: "9px 10px", color: estColor, fontWeight: 700 }}>
+                        {p.estoque_atual}
+                      </td>
+                      <td style={{ padding: "9px 10px" }}>{fmtR(p.preco_normal)}</td>
+                      <td style={{ padding: "9px 10px", color: C.muted }}>{fmtR(p.preco_custo)}</td>
+                      <td style={{ padding: "9px 10px" }}>
+                        {p.margem_normal_pct != null ? (
+                          <span style={{ color: p.margem_normal_pct < 20 ? C.red
+                            : p.margem_normal_pct >= 40 ? C.green : C.gold }}>
+                            {fmtP(p.margem_normal_pct)}
+                          </span>
+                        ) : "—"}
+                      </td>
+                      <td style={{ padding: "9px 10px", color: C.purple }}>
+                        {p.margem_da_pct != null ? fmtP(p.margem_da_pct) : "—"}
+                      </td>
+                      <td style={{ padding: "9px 10px" }}>
+                        <Badge color={estColor}>{p.status_estoque}</Badge>
+                      </td>
+                      <td style={{ padding: "9px 10px" }}>
+                        <button onClick={() => editar(p)} style={{ background: "none",
+                          border: "none", color: C.muted, fontSize: 16, cursor: "pointer" }}>
+                          ✏️
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {prods.length === 0 && (
+              <p style={{ color: C.muted, textAlign: "center", padding: 40 }}>
+                Nenhum produto cadastrado ainda.
+              </p>
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ─── HISTÓRICO DE VENDAS ─────────────────────────────────────────
+function Historico() {
+  const [vendas, setVendas] = useState([]);
+  const [filtro, setFiltro] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [editando, setEditando] = useState(null);
+  const [prods, setProds] = useState([]);
+  const [loadSave, setLoadSave] = useState(false);
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    const { data: v } = await supabase.from("vendas").select("*")
+      .order("data_venda", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(200);
+    const { data: p } = await supabase.from("produtos").select("*").eq("ativo", true);
+    setVendas(v || []);
+    setProds(p || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    carregar();
+    const ch = supabase.channel("vendas_hist")
+      .on("postgres_changes", { event: "*", schema: "public", table: "vendas" }, carregar)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [carregar]);
+
+  const salvarEdicao = async (e) => {
+    e.preventDefault();
+    setLoadSave(true);
+    
+    // 1. Reverter estoque antigo (aumentar)
+    const vAntiga = vendas.find(v => v.id === editando.id);
+    await supabase.rpc("ajustar_estoque", { 
+      p_id: vAntiga.produto_id, 
+      p_qtd: vAntiga.quantidade 
+    });
+
+    // 2. Aplicar novo estoque (diminuir)
+    const prodNovo = prods.find(p => p.id === editando.produto_id);
+    const { data: resEstoque } = await supabase.rpc("ajustar_estoque", { 
+      p_id: editando.produto_id, 
+      p_qtd: -editando.quantidade 
+    });
+
+    if (resEstoque?.error) {
+      alert("Erro de estoque: " + resEstoque.error);
+      setLoadSave(false);
+      return;
+    }
+
+    // 3. Atualizar a venda
+    const { error } = await supabase.from("vendas").update({
+      produto_id: editando.produto_id,
+      produto_nome: prodNovo.nome,
+      comprador: editando.comprador,
+      turma: editando.turma,
+      quantidade: editando.quantidade,
+      preco_venda: prodNovo.preco_normal,
+      forma_pagamento: editando.forma_pagamento,
+      status: editando.status,
+      data_venda: editando.data_venda
+    }).eq("id", editando.id);
+
+    if (error) alert("Erro ao salvar: " + error.message);
+    else {
+      setEditando(null);
+      carregar();
+    }
+    setLoadSave(false);
+  };
+
+  const filtradas = vendas.filter(v =>
+    !filtro || v.comprador.toLowerCase().includes(filtro.toLowerCase()) ||
+    v.produto_nome.toLowerCase().includes(filtro.toLowerCase())
+  );
+
+  const STATUS_COLOR = {
+    "Pago e Entregue": C.green, "Pendente": C.gold,
+    "Pago Aguardando": C.teal, "Reembolsado": C.red
+  };
+
+  return (
+    <div>
+      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>
+        🗂️ Histórico de Vendas
+      </h1>
+      <Card>
+        <Input placeholder="Buscar por comprador ou produto..."
+          value={filtro} onChange={e => setFiltro(e.target.value)}
+          style={{ marginBottom: 16 }} />
+
+        {loading ? <p style={{ color: C.muted }}>Carregando...</p> : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                  {["Data","Produto","Comprador","Turma","Qtd","Preço","Pagamento","Status", "Ações"].map(h => (
+                    <th key={h} style={{ padding: "8px 12px", color: C.muted,
+                      fontWeight: 500, textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtradas.map((v, i) => (
+                  <tr key={v.id} style={{ borderBottom: `1px solid ${C.border}22`,
+                    background: i % 2 === 0 ? "transparent" : "#ffffff04" }}>
+                    <td style={{ padding: "9px 12px", color: C.muted, whiteSpace: "nowrap" }}>
+                      {v.data_venda?.split("-").reverse().join("/")}
+                    </td>
+                    <td style={{ padding: "9px 12px", fontWeight: 500 }}>{v.produto_nome}</td>
+                    <td style={{ padding: "9px 12px" }}>{v.comprador}</td>
+                    <td style={{ padding: "9px 12px", color: C.muted }}>{v.turma || "—"}</td>
+                    <td style={{ padding: "9px 12px", textAlign: "center" }}>{v.quantidade}</td>
+                    <td style={{ padding: "9px 12px" }}>{fmtR(v.preco_venda * v.quantidade)}</td>
+                    <td style={{ padding: "9px 12px", color: C.muted }}>{v.forma_pagamento}</td>
+                    <td style={{ padding: "9px 12px" }}>
+                      <Badge color={STATUS_COLOR[v.status] || C.muted}>{v.status}</Badge>
+                    </td>
+                    <td style={{ padding: "9px 12px" }}>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button 
+                          onClick={() => setEditando({ ...v })}
+                          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16 }}
+                          title="Editar Venda"
+                        >
+                          ✏️
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            if (confirm(`Excluir venda de "${v.produto_nome}" para ${v.comprador}?`)) {
+                              // Devolve estoque ao excluir
+                              await supabase.rpc("ajustar_estoque", { p_id: v.produto_id, p_qtd: v.quantidade });
+                              const { error } = await supabase.from("vendas").delete().eq("id", v.id);
+                              if (error) alert("Erro ao excluir: " + error.message);
+                              else carregar();
+                            }
+                          }}
+                          style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16 }}
+                          title="Excluir Venda"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filtradas.length === 0 && (
+              <p style={{ color: C.muted, textAlign: "center", padding: 40 }}>
+                Nenhuma venda encontrada.
+              </p>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Modal de Edição */}
+      {editando && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center",
+          justifyContent: "center", zIndex: 1000, padding: 20
+        }}>
+          <Card style={{ width: "100%", maxWidth: 500 }}>
+            <h2 style={{ fontFamily: "Syne", marginBottom: 20 }}>Editar Venda</h2>
+            <form onSubmit={salvarEdicao} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Input label="Comprador" value={editando.comprador} 
+                onChange={e => setEditando({...editando, comprador: e.target.value})} required />
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Input label="Turma" value={editando.turma} 
+                  onChange={e => setEditando({...editando, turma: e.target.value})} />
+                <Input label="Data" type="date" value={editando.data_venda} 
+                  onChange={e => setEditando({...editando, data_venda: e.target.value})} required />
+              </div>
+
+              <Select label="Produto" value={editando.produto_id} 
+                onChange={e => setEditando({...editando, produto_id: e.target.value})}>
+                {prods.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </Select>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Input label="Quantidade" type="number" value={editando.quantidade} 
+                  onChange={e => setEditando({...editando, quantidade: parseInt(e.target.value) || 1})} required />
+                <Select label="Pagamento" value={editando.forma_pagamento} 
+                  onChange={e => setEditando({...editando, forma_pagamento: e.target.value})}>
+                  {["Pix","Dinheiro","Cartão","Transferência"].map(o => <option key={o} value={o}>{o}</option>)}
+                </Select>
+              </div>
+
+              <Select label="Status" value={editando.status} 
+                onChange={e => setEditando({...editando, status: e.target.value})}>
+                {Object.keys(STATUS_COLOR).map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+
+              <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                <Btn variant="ghost" onClick={() => setEditando(null)} style={{ flex: 1 }}>Cancelar</Btn>
+                <Btn type="submit" variant="success" disabled={loadSave} style={{ flex: 1 }}>
+                  {loadSave ? "Salvando..." : "Salvar Alterações"}
+                </Btn>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── APP PRINCIPAL ───────────────────────────────────────────────
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [tab, setTab]         = useState("dashboard");
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session); setChecking(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, s) => setSession(s));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setSession(null); setTab("dashboard");
+  };
+
+  if (checking) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center",
+      justifyContent: "center", background: C.bg }}>
+      <div style={{ color: C.muted, fontSize: 32 }}>⏳</div>
+    </div>
+  );
+
+  if (!session) return <Login onLogin={() => {}} />;
+
+  const PAGES = { dashboard: Dashboard, vendas: NovaVenda, produtos: Produtos, historico: Historico };
+  const Page  = PAGES[tab] || Dashboard;
+
+  return (
+    <>
+      <style>{globalCss}</style>
+      <Sidebar tab={tab} setTab={setTab} onLogout={logout} user={session.user} />
+      <main style={{ marginLeft: 220, padding: 32, minHeight: "100vh" }}>
+        <Page />
+      </main>
+    </>
+  );
+}
