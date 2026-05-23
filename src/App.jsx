@@ -225,24 +225,45 @@ function Dashboard() {
   const [vendas, setVendas]  = useState([]);
   const [prods, setProds]    = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Filtros
+  const [filtroData, setFiltroData] = useState("ultimo_mes"); // hoje, ultimo_mes, custom
+  const [dataDe, setDataDe]         = useState("");
+  const [dataAte, setDataAte]       = useState("");
 
   const carregar = useCallback(async () => {
     setLoading(true);
+    
+    let query = supabase.from("vendas").select("*").eq("status", "Pago e Entregue");
+    
+    const dHoje = hoje();
+    
+    if (filtroData === "hoje") {
+      query = query.eq("data_venda", dHoje);
+    } else if (filtroData === "ultimo_mes") {
+      const umMesAtras = new Date();
+      umMesAtras.setDate(umMesAtras.getDate() - 30);
+      query = query.gte("data_venda", umMesAtras.toISOString().split("T")[0]);
+    } else if (filtroData === "custom") {
+      if (dataDe)  query = query.gte("data_venda", dataDe);
+      if (dataAte) query = query.lte("data_venda", dataAte);
+    }
+
     const [{ data: v }, { data: p }] = await Promise.all([
-      supabase.from("vendas").select("*").eq("status", "Pago e Entregue"),
+      query,
       supabase.from("dashboard_produtos").select("*"),
     ]);
 
     const vs = v || []; const ps = p || [];
 
-    // Calcula stats
+    // Calcula stats baseados no filtro
     const totalGeral = vs.reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
     const totalItens = vs.reduce((s, r) => s + r.quantidade, 0);
     const custoMap   = Object.fromEntries(ps.map(p => [p.id, p.preco_custo]));
     const totalCusto = vs.reduce((s, r) => s + (custoMap[r.produto_id] || 0) * r.quantidade, 0);
     const totalLucro = totalGeral - totalCusto;
 
-    // Agrupa por dia (últimos 14 dias)
+    // Agrupa por dia para o gráfico
     const diasMap = {};
     vs.forEach(r => {
       const d = r.data_venda;
@@ -252,24 +273,38 @@ function Dashboard() {
     });
     const porDia = Object.values(diasMap)
       .sort((a, b) => a.data.localeCompare(b.data))
-      .slice(-14)
       .map(d => ({ ...d, data: d.data.slice(5).replace("-", "/") }));
 
-    // Hoje
-    const dataHoje = hoje();
-    const totalHoje = vs.filter(r => r.data_venda === dataHoje)
-      .reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
+    // Estatística de "Hoje" sempre mostra o dia atual independente do filtro principal
+    let totalHoje;
+    if (filtroData === "hoje") {
+      totalHoje = totalGeral;
+    } else {
+      const { data: vHoje } = await supabase.from("vendas")
+        .select("preco_venda, quantidade")
+        .eq("status", "Pago e Entregue")
+        .eq("data_venda", dHoje);
+      totalHoje = (vHoje || []).reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
+    }
 
     setStats({ totalGeral, totalItens, totalPedidos: vs.length, totalLucro, totalHoje,
                margemGeral: totalGeral > 0 ? (totalLucro / totalGeral * 100).toFixed(1) : 0 });
     setVendas(porDia);
-    setProds(ps.sort((a, b) => (b.total_vendido || 0) - (a.total_vendido || 0)).slice(0, 8));
+    
+    // Top produtos baseado no período filtrado para o gráfico de barras
+    const topPMap = {};
+    vs.forEach(v => {
+      if (!topPMap[v.produto_id]) topPMap[v.produto_id] = { nome: v.produto_nome, total_vendido: 0 };
+      topPMap[v.produto_id].total_vendido += v.quantidade;
+    });
+      
+    // Usamos ps para a tabela de estoque
+    setProds(ps); 
     setLoading(false);
-  }, []);
+  }, [filtroData, dataDe, dataAte]);
 
   useEffect(() => {
     carregar();
-    // Realtime
     const ch = supabase.channel("dashboard")
       .on("postgres_changes", { event: "*", schema: "public", table: "vendas" }, carregar)
       .on("postgres_changes", { event: "*", schema: "public", table: "produtos" }, carregar)
@@ -277,27 +312,46 @@ function Dashboard() {
     return () => supabase.removeChannel(ch);
   }, [carregar]);
 
-  if (loading) return <div style={{ color: C.muted, padding: 40 }}>Carregando...</div>;
+  if (loading && !stats) return <div style={{ color: C.muted, padding: 40 }}>Carregando...</div>;
 
   return (
     <div>
-      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>
-        Dashboard
-      </h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800 }}>
+          Dashboard
+        </h1>
+        
+        {/* Filtros de Data */}
+        <div style={{ display: "flex", gap: 10, alignItems: "end" }}>
+          <Select label="Período" value={filtroData} onChange={e => setFiltroData(e.target.value)} style={{ width: 140 }}>
+            <option value="hoje">Hoje</option>
+            <option value="ultimo_mes">Últimos 30 dias</option>
+            <option value="custom">Personalizado</option>
+          </Select>
+          
+          {filtroData === "custom" && (
+            <>
+              <Input type="date" label="De" value={dataDe} onChange={e => setDataDe(e.target.value)} />
+              <Input type="date" label="Até" value={dataAte} onChange={e => setDataAte(e.target.value)} />
+            </>
+          )}
+          <Btn variant="ghost" onClick={carregar} style={{ height: 40 }}>🔄</Btn>
+        </div>
+      </div>
 
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
-        <StatCard label="Total Arrecadado" value={fmtR(stats.totalGeral)} icon="💰" color={C.green} />
-        <StatCard label="Lucro Estimado"   value={fmtR(stats.totalLucro)} icon="📈"
-          color={stats.totalLucro >= 0 ? C.teal : C.red} />
-        <StatCard label="Margem Geral"     value={fmtP(stats.margemGeral)} icon="%" color={C.purple} />
-        <StatCard label="Vendas Hoje"      value={fmtR(stats.totalHoje)} icon="📅" color={C.gold} />
+        <StatCard label="Total no Período" value={fmtR(stats?.totalGeral)} icon="💰" color={C.green} />
+        <StatCard label="Lucro no Período"   value={fmtR(stats?.totalLucro)} icon="📈"
+          color={stats?.totalLucro >= 0 ? C.teal : C.red} />
+        <StatCard label="Margem Geral"     value={fmtP(stats?.margemGeral)} icon="%" color={C.purple} />
+        <StatCard label="Vendas Hoje (Total)"      value={fmtR(stats?.totalHoje)} icon="📅" color={C.gold} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
-        <StatCard label="Itens Vendidos"  value={stats.totalItens}    icon="📦" color={C.muted} />
-        <StatCard label="Nº de Vendas"    value={stats.totalPedidos}  icon="🧾" color={C.muted} />
+        <StatCard label="Itens Vendidos"  value={stats?.totalItens}    icon="📦" color={C.muted} />
+        <StatCard label="Nº de Vendas"    value={stats?.totalPedidos}  icon="🧾" color={C.muted} />
         <StatCard label="Ticket Médio"    icon="🎯" color={C.muted}
-          value={stats.totalPedidos > 0 ? fmtR(stats.totalGeral / stats.totalPedidos) : "—"} />
+          value={stats?.totalPedidos > 0 ? fmtR(stats?.totalGeral / stats?.totalPedidos) : "—"} />
       </div>
 
       {/* Gráficos */}
@@ -326,16 +380,16 @@ function Dashboard() {
                   strokeWidth={2} fill="url(#grad)" />
               </AreaChart>
             </ResponsiveContainer>
-          ) : <p style={{ color: C.muted, textAlign: "center", paddingTop: 60 }}>Sem dados ainda</p>}
+          ) : <p style={{ color: C.muted, textAlign: "center", paddingTop: 60 }}>Sem dados ainda no período</p>}
         </Card>
 
         <Card>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>
-            Top Produtos
+            Top Produtos (Vendas)
           </h3>
           {prods.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={prods} layout="vertical" margin={{ left: -10 }}>
+              <BarChart data={prods.filter(p => p.total_vendido > 0).sort((a,b) => b.total_vendido - a.total_vendido).slice(0,8)} layout="vertical" margin={{ left: -10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                 <XAxis type="number" tick={{ fill: C.muted, fontSize: 11 }} />
                 <YAxis type="category" dataKey="nome" width={90}
@@ -358,7 +412,7 @@ function Dashboard() {
       {/* Tabela produtos com margem */}
       <Card>
         <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 15 }}>
-          Estoque e Margem
+          Estoque e Margem Geral
         </h3>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -627,46 +681,49 @@ function Produtos() {
   );
 
   return (
-    <div>
+    <div style={{ maxWidth: "1200px" }}>
       <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>
         📦 Produtos
       </h1>
-      <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 20, alignItems: "start" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "start" }}>
 
         {/* Formulário */}
-        <Card>
-          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 14,
-            color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>
-            {editId ? "✏️ Editar Produto" : "➕ Novo Produto"}
-          </h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Alert msg={msg?.v} type={msg?.t} onClose={() => setMsg(null)} />
-            {F("nome", "Nome do produto *", { placeholder: "Ex: Camiseta Preta XG" })}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {F("estoque_inicial", "Estoque inicial", { type: "number", min: 0 })}
-              {F("preco_normal", "Preço venda (R$) *", { type: "number", step: "0.01", placeholder: "0,00" })}
-              {F("preco_da", "Preço DA (R$)", { type: "number", step: "0.01", placeholder: "0,00" })}
-              {F("preco_custo", "Preço custo (R$)", { type: "number", step: "0.01", placeholder: "0,00" })}
-            </div>
-            <p style={{ fontSize: 11, color: C.muted }}>O custo calcula a margem de lucro no Dashboard.</p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn variant="success" onClick={salvar} disabled={load} style={{ flex: 1 }}>
-                {load ? "Salvando..." : editId ? "Salvar alterações" : "Cadastrar produto"}
-              </Btn>
-              {editId && (
-                <Btn variant="ghost" onClick={() => { setEditId(null);
-                  setForm({ nome:"",estoque_inicial:0,preco_normal:"",preco_da:"",preco_custo:""}); }}>
-                  ✕
+        <div style={{ flex: "0 0 340px" }}>
+          <Card>
+            <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 14,
+              color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>
+              {editId ? "✏️ Editar Produto" : "➕ Novo Produto"}
+            </h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Alert msg={msg?.v} type={msg?.t} onClose={() => setMsg(null)} />
+              {F("nome", "Nome do produto *", { placeholder: "Ex: Camiseta Preta XG" })}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {F("estoque_inicial", "Estoque inicial", { type: "number", min: 0 })}
+                {F("preco_normal", "Preço venda (R$) *", { type: "number", step: "0.01", placeholder: "0,00" })}
+                {F("preco_da", "Preço DA (R$)", { type: "number", step: "0.01", placeholder: "0,00" })}
+                {F("preco_custo", "Preço custo (R$)", { type: "number", step: "0.01", placeholder: "0,00" })}
+              </div>
+              <p style={{ fontSize: 11, color: C.muted }}>O custo calcula a margem de lucro no Dashboard.</p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn variant="success" onClick={salvar} disabled={load} style={{ flex: 1 }}>
+                  {load ? "Salvando..." : editId ? "Salvar alterações" : "Cadastrar produto"}
                 </Btn>
-              )}
+                {editId && (
+                  <Btn variant="ghost" onClick={() => { setEditId(null);
+                    setForm({ nome:"",estoque_inicial:0,preco_normal:"",preco_da:"",preco_custo:""}); }}>
+                    ✕
+                  </Btn>
+                )}
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
 
         {/* Tabela */}
-        <Card>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div style={{ flex: "1 1 600px", minWidth: 0 }}>
+          <Card>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${C.border}` }}>
                   {["Produto","Est.","Preço","Custo","Margem%","Margem DA%","Status",""].map(h => (
