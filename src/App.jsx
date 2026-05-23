@@ -188,10 +188,10 @@ function Login({ onLogin }) {
             onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }}
           />
           <div style={{ fontSize: 48, marginBottom: 12, display: 'none' }}>🛒</div>
-          <h1 style={{ fontFamily: "Syne", fontSize: 28, fontWeight: 800, color: C.text }}>
-            Vendas D.A.
+          <h1 style={{ fontFamily: "Syne", fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
+            Diretório Acadêmico Cleusa Ferri
           </h1>
-          <p style={{ color: C.muted, fontSize: 14, marginTop: 6 }}>Sistema de Gestão 2026</p>
+          <p style={{ color: C.muted, fontSize: 13, marginTop: 8 }}>UAM SJC - GESTÃO 2026</p>
         </div>
         <Card>
           <form onSubmit={entrar} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -233,10 +233,10 @@ function Sidebar({ tab, setTab, onLogout, user }) {
           onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }}
         />
         <div style={{ fontSize: 28, marginBottom: 6, display: 'none' }}>🛒</div>
-        <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 16, color: C.text }}>
-          Vendas D.A.
+        <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 14, color: C.text, lineHeight: 1.2 }}>
+          D.A. Cleusa Ferri
         </h2>
-        <p style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Gestão 2026</p>
+        <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>UAM SJC - GESTÃO 2026</p>
       </div>
 
       <nav className="sidebar-nav" style={{ flex: 1, padding: "16px 12px" }}>
