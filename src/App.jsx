@@ -16,11 +16,11 @@ const C = {
   navy:   "#0F2240",
   blue:   "#1A3C5E",
   teal:   "#0D7377",
-  green:  "#217346",
+  green:  "#143A26", // Verde mais escuro para o fundo
   gold:   "#C89B3C",
   red:    "#C0392B",
   purple: "#6B3FA0",
-  bg:     "#0A1628",
+  bg:     "#081C15", // Fundo verde floresta bem escuro
   card:   "#111E35",
   border: "#1E3050",
   text:   "#E8EDF5",
@@ -37,7 +37,27 @@ const hoje = () => new Date().toISOString().split("T")[0];
 const globalCss = `
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: ${C.bg}; color: ${C.text}; font-family: 'DM Sans', sans-serif; min-height: 100vh; overflow-x: hidden; }
+  body { 
+    background: ${C.bg}; 
+    color: ${C.text}; 
+    font-family: 'DM Sans', sans-serif; 
+    min-height: 100vh; 
+    overflow-x: hidden;
+    position: relative;
+  }
+  
+  /* Marca d'água de fundo */
+  body::before {
+    content: "";
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: url('logo.png') no-repeat center center;
+    background-size: 40%;
+    opacity: 0.04; /* Efeito de marca d'água bem suave */
+    pointer-events: none;
+    z-index: -1;
+  }
+
   ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: ${C.bg}; }
   ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
   input, select, textarea { font-family: inherit; }
@@ -171,7 +191,7 @@ function Login({ onLogin }) {
           <h1 style={{ fontFamily: "Syne", fontSize: 28, fontWeight: 800, color: C.text }}>
             Vendas D.A.
           </h1>
-          <p style={{ color: C.muted, fontSize: 14, marginTop: 6 }}>Sistema de Gestão 2025</p>
+          <p style={{ color: C.muted, fontSize: 14, marginTop: 6 }}>Sistema de Gestão 2026</p>
         </div>
         <Card>
           <form onSubmit={entrar} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -216,7 +236,7 @@ function Sidebar({ tab, setTab, onLogout, user }) {
         <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 16, color: C.text }}>
           Vendas D.A.
         </h2>
-        <p style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Gestão 2025</p>
+        <p style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Gestão 2026</p>
       </div>
 
       <nav className="sidebar-nav" style={{ flex: 1, padding: "16px 12px" }}>
