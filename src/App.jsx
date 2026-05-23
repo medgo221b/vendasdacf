@@ -779,6 +779,7 @@ function Produtos() {
         </Card>
       </div>
     </div>
+  </div>
   );
 }
 
