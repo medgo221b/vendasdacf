@@ -161,7 +161,13 @@ function Login({ onLogin }) {
     }}>
       <div style={{ width: "100%", maxWidth: 400, padding: 24 }}>
         <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🛒</div>
+          <img 
+            src="logo.png" 
+            alt="Logo D.A." 
+            style={{ width: 80, height: 80, marginBottom: 16, borderRadius: 16, objectFit: 'cover' }}
+            onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }}
+          />
+          <div style={{ fontSize: 48, marginBottom: 12, display: 'none' }}>🛒</div>
           <h1 style={{ fontFamily: "Syne", fontSize: 28, fontWeight: 800, color: C.text }}>
             Vendas D.A.
           </h1>
@@ -199,8 +205,14 @@ function Sidebar({ tab, setTab, onLogout, user }) {
       borderRight: `1px solid ${C.border}`, display: "flex",
       flexDirection: "column", position: "fixed", top: 0, left: 0, zIndex: 100
     }}>
-      <div className="sidebar-header" style={{ padding: "28px 20px 20px", borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ fontSize: 28, marginBottom: 6 }}>🛒</div>
+      <div className="sidebar-header" style={{ padding: "28px 20px 20px", borderBottom: `1px solid ${C.border}`, textAlign: 'center' }}>
+        <img 
+          src="logo.png" 
+          alt="Logo D.A." 
+          style={{ width: 60, height: 60, marginBottom: 10, borderRadius: 12, objectFit: 'cover' }}
+          onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }}
+        />
+        <div style={{ fontSize: 28, marginBottom: 6, display: 'none' }}>🛒</div>
         <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 16, color: C.text }}>
           Vendas D.A.
         </h2>
