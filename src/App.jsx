@@ -218,25 +218,60 @@ function Login({ onLogin }) {
 }
 
 // ─── SIDEBAR ────────────────────────────────────────────────────
-const TABS = [
-  { id: "dashboard", label: "Dashboard",  icon: "📊" },
-  { id: "vendas",    label: "Nova Venda", icon: "🆕" },
-  { id: "produtos",  label: "Produtos",   icon: "📦" },
-  { id: "kits",      label: "Kits/Combos", icon: "🍱" },
-  { id: "historico", label: "Histórico",  icon: "🗂️" },
+const MENU_ESTRUTURA = [
+  { id: "dashboard", label: "Dashboard", icon: "📊" },
+  { 
+    id: "grupo_vendas", 
+    label: "Vendas", 
+    icon: "🛒", 
+    subs: [
+      { id: "vendas", label: "Nova Venda", icon: "🆕" },
+      { id: "historico", label: "Histórico", icon: "🗂️" }
+    ]
+  },
+  { 
+    id: "grupo_produtos", 
+    label: "Produtos", 
+    icon: "📦", 
+    subs: [
+      { id: "produtos", label: "Gestão / Estoque", icon: "📉" },
+      { id: "kits", label: "Kits / Combos", icon: "🍱" }
+    ]
+  },
   { id: "financeiro", label: "Financeiro", icon: "💸" },
 ];
 
 function Sidebar({ tab, setTab, onLogout, user }) {
   const [alertas, setAlertas] = useState(0);
+  const [abertos, setAbus] = useState(["grupo_vendas", "grupo_produtos"]); // Mantém grupos abertos
 
   useEffect(() => {
-    supabase.from("produtos")
-      .select("id")
-      .eq("ativo", true)
-      .lte("estoque_atual", 5)
+    supabase.from("produtos").select("id").eq("ativo", true).lte("estoque_atual", 5)
       .then(({ data }) => setAlertas(data?.length || 0));
   }, [tab]);
+
+  const toggleGrupo = (id) => setAbus(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const RenderBtn = ({ item, isSub = false }) => {
+    const active = tab === item.id;
+    return (
+      <button onClick={() => setTab(item.id)} style={{
+        width: "100%", display: "flex", alignItems: "center", gap: 10,
+        padding: isSub ? "9px 14px 9px 40px" : "11px 14px", 
+        borderRadius: 10, border: "none", marginBottom: 2,
+        background: active ? C.teal + "22" : "transparent",
+        color: active ? C.teal : C.muted,
+        fontWeight: active ? 600 : 400, fontSize: isSub ? 13 : 14, transition: "all .2s",
+        borderLeft: active ? `3px solid ${C.teal}` : "3px solid transparent",
+        position: 'relative'
+      }}>
+        <span>{item.icon}</span> {item.label}
+        {item.id === 'produtos' && alertas > 0 && (
+          <span style={{ position: 'absolute', right: 10, background: C.red, color: '#fff', fontSize: 10, padding: '2px 6px', borderRadius: 10 }}>{alertas}</span>
+        )}
+      </button>
+    );
+  };
 
   return (
     <aside className="sidebar" style={{
@@ -244,49 +279,36 @@ function Sidebar({ tab, setTab, onLogout, user }) {
       borderRight: `1px solid ${C.border}`, display: "flex",
       flexDirection: "column", position: "fixed", top: 0, left: 0, zIndex: 100
     }}>
-      <div className="sidebar-header" style={{ padding: "28px 20px 20px", borderBottom: `1px solid ${C.border}`, textAlign: 'center' }}>
-        <img 
-          src="logo.png" 
-          alt="Logo D.A." 
-          style={{ width: 60, height: 60, marginBottom: 10, borderRadius: 12, objectFit: 'cover' }}
-          onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }}
-        />
-        <div style={{ fontSize: 28, marginBottom: 6, display: 'none' }}>🛒</div>
-        <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 14, color: C.text, lineHeight: 1.2 }}>
-          D.A. Cleusa Ferri
-        </h2>
-        <p style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>UAM SJC - GESTÃO 2026</p>
+      <div className="sidebar-header" style={{ padding: "24px 20px", borderBottom: `1px solid ${C.border}`, textAlign: 'center' }}>
+        <img src="logo.png" alt="Logo" style={{ width: 50, height: 50, marginBottom: 10, borderRadius: 10, objectFit: 'cover' }}
+          onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+        <div style={{ fontSize: 24, marginBottom: 6, display: 'none' }}>🛒</div>
+        <h2 style={{ fontFamily: "Syne", fontWeight: 800, fontSize: 13, color: C.text }}>D.A. Cleusa Ferri</h2>
+        <p style={{ fontSize: 9, color: C.muted }}>UAM SJC - 2026</p>
       </div>
 
-      <nav className="sidebar-nav" style={{ flex: 1, padding: "16px 12px" }}>
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            width: "100%", display: "flex", alignItems: "center", gap: 10,
-            padding: "11px 14px", borderRadius: 10, border: "none", marginBottom: 4,
-            background: tab === t.id ? C.teal + "22" : "transparent",
-            color: tab === t.id ? C.teal : C.muted,
-            fontWeight: tab === t.id ? 600 : 400, fontSize: 14, transition: "all .2s",
-            borderLeft: tab === t.id ? `3px solid ${C.teal}` : "3px solid transparent",
-            position: 'relative'
-          }}>
-            <span>{t.icon}</span> {t.label}
-            {t.id === 'produtos' && alertas > 0 && (
-              <span style={{ 
-                position: 'absolute', right: 10, background: C.red, color: '#fff', 
-                fontSize: 10, padding: '2px 6px', borderRadius: 10, fontWeight: 800 
-              }}>{alertas}</span>
-            )}
-          </button>
+      <nav className="sidebar-nav" style={{ flex: 1, padding: "12px", overflowY: 'auto' }}>
+        {MENU_ESTRUTURA.map(m => (
+          <div key={m.id}>
+            {m.subs ? (
+              <>
+                <button onClick={() => toggleGrupo(m.id)} style={{
+                  width: "100%", display: "flex", alignItems: "center", justifyContent: 'space-between',
+                  padding: "11px 14px", background: 'transparent', border: 'none', color: C.text,
+                  fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 8
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span>{m.icon}</span> {m.label}</div>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>{abertos.includes(m.id) ? "▼" : "▶"}</span>
+                </button>
+                {abertos.includes(m.id) && m.subs.map(s => <RenderBtn key={s.id} item={s} isSub />)}
+              </>
+            ) : <RenderBtn item={m} />}
+          </div>
         ))}
       </nav>
 
       <div className="sidebar-footer" style={{ padding: "16px", borderTop: `1px solid ${C.border}` }}>
-        <p style={{ fontSize: 11, color: C.muted, marginBottom: 8, wordBreak: "break-all" }}>
-          {user?.email}
-        </p>
-        <Btn variant="ghost" onClick={onLogout} style={{ width: "100%", fontSize: 13 }}>
-          Sair
-        </Btn>
+        <Btn variant="ghost" onClick={onLogout} style={{ width: "100%", fontSize: 12 }}>Sair</Btn>
       </div>
     </aside>
   );
