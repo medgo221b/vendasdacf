@@ -222,7 +222,9 @@ const TABS = [
   { id: "dashboard", label: "Dashboard",  icon: "📊" },
   { id: "vendas",    label: "Nova Venda", icon: "🆕" },
   { id: "produtos",  label: "Produtos",   icon: "📦" },
+  { id: "kits",      label: "Kits/Combos", icon: "🍱" },
   { id: "historico", label: "Histórico",  icon: "🗂️" },
+  { id: "financeiro", label: "Financeiro", icon: "💸" },
 ];
 
 function Sidebar({ tab, setTab, onLogout, user }) {
@@ -908,6 +910,10 @@ function Historico() {
                   <td style={{ padding: "9px 12px" }}><Badge color={STATUS_COLOR[v.status] || C.muted}>{v.status}</Badge></td>
                   <td style={{ padding: "9px 12px" }}>
                     <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => {
+                        const msg = `Olá ${v.comprador}, o D.A. Cleusa Ferri confirma sua compra de ${v.quantidade}x ${v.produto_nome}. Total: ${fmtR(v.preco_venda * v.quantidade)}. Obrigado!`;
+                        window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                      }} style={{ background: "none", border: "none", fontSize: 16 }} title="Enviar Recibo WhatsApp">📱</button>
                       <button onClick={() => setEditando({ ...v })} style={{ background: "none", border: "none", fontSize: 16 }}>✏️</button>
                       <button onClick={async () => { if (confirm(`Excluir?`)) { await supabase.rpc("ajustar_estoque", { p_id: v.produto_id, p_qtd: v.quantidade }); await supabase.from("vendas").delete().eq("id", v.id); carregar(); } }} style={{ background: "none", border: "none", fontSize: 16 }}>🗑️</button>
                     </div>
@@ -946,6 +952,30 @@ function Historico() {
   );
 }
 
+// ─── KITS / COMBOS ──────────────────────────────────────────────
+function Kits() {
+  return (
+    <div style={{ maxWidth: 800, margin: '0 auto' }}>
+      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>🍱 Kits e Combos</h1>
+      <Card>
+        <p style={{ color: C.muted }}>Módulo de Kits em desenvolvimento...</p>
+      </Card>
+    </div>
+  );
+}
+
+// ─── FINANCEIRO ─────────────────────────────────────────────────
+function Financeiro() {
+  return (
+    <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>💸 Financeiro</h1>
+      <Card>
+        <p style={{ color: C.muted }}>Módulo Financeiro (Caixa e Custos) em desenvolvimento...</p>
+      </Card>
+    </div>
+  );
+}
+
 // ─── APP PRINCIPAL ───────────────────────────────────────────────
 export default function App() {
   const [session, setSession] = useState(null);
@@ -961,7 +991,15 @@ export default function App() {
   const logout = async () => { await supabase.auth.signOut(); setSession(null); setTab("dashboard"); };
   if (checking) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg }}><div style={{ color: C.muted, fontSize: 32 }}>⏳</div></div>;
   if (!session) return <Login onLogin={() => {}} />;
-  const Page = { dashboard: Dashboard, vendas: NovaVenda, produtos: Produtos, historico: Historico }[tab] || Dashboard;
+  const PAGES = { 
+    dashboard: Dashboard, 
+    vendas: NovaVenda, 
+    produtos: Produtos, 
+    kits: Kits,
+    historico: Historico, 
+    financeiro: Financeiro 
+  };
+  const Page  = PAGES[tab] || Dashboard;
 
   return (
     <>
