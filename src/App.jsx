@@ -1202,8 +1202,10 @@ function Financeiro() {
       valor_informado_pix: Number(conferido.pix) || 0,
       observacao: conferido.observacao
     };
-    const { error } = conferido.id ? await supabase.from("caixas").update(payload).eq("id", conferido.id) : await supabase.from("caixas").insert(payload);
-    if (error) alert(error.message);
+    if (conferido.id) payload.id = conferido.id;
+
+    const { error } = await supabase.from("caixas").upsert(payload, { onConflict: 'data_fechamento' });
+    if (error) alert("Erro ao salvar: " + error.message);
     else { setShow(false); setConf({ dinheiro: "", pix: "", observacao: "", id: null }); carregar(); }
   };
 
