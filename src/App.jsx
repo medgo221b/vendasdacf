@@ -306,66 +306,91 @@ function Dashboard() {
 
   const carregar = useCallback(async () => {
     setLoading(true);
-    let query = supabase.from("vendas").select("*").eq("status", "Pago e Entregue");
     const dHoje = hoje();
     
+    let queryVendas = supabase.from("vendas").select("*").eq("status", "Pago e Entregue");
+    let queryMovs = supabase.from("movimentacoes_financeiras").select("*");
+    
     if (filtroData === "hoje") {
-      query = query.eq("data_venda", dHoje);
+      queryVendas = queryVendas.eq("data_venda", dHoje);
+      queryMovs = queryMovs.gte("created_at", dHoje);
     } else if (filtroData === "ultimo_mes") {
       const umMesAtras = new Date();
       umMesAtras.setDate(umMesAtras.getDate() - 30);
-      query = query.gte("data_venda", umMesAtras.toISOString().split("T")[0]);
+      const dataIso = umMesAtras.toISOString().split("T")[0];
+      queryVendas = queryVendas.gte("data_venda", dataIso);
+      queryMovs = queryMovs.gte("created_at", dataIso);
     } else if (filtroData === "custom") {
-      if (dataDe)  query = query.gte("data_venda", dataDe);
-      if (dataAte) query = query.lte("data_venda", dataAte);
+      if (dataDe) { queryVendas = queryVendas.gte("data_venda", dataDe); queryMovs = queryMovs.gte("created_at", dataDe); }
+      if (dataAte) { queryVendas = queryVendas.lte("data_venda", dataAte); queryMovs = queryMovs.lte("created_at", dataAte + "T23:59:59"); }
     }
 
-    const [{ data: v }, { data: p }] = await Promise.all([
-      query,
+    const [{ data: v }, { data: p }, { data: m }] = await Promise.all([
+      queryVendas,
       supabase.from("dashboard_produtos").select("*"),
+      queryMovs
     ]);
 
-    const vs = v || []; const ps = p || [];
-    const totalGeral = vs.reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
-    const totalItens = vs.reduce((s, r) => s + r.quantidade, 0);
+    const vs = v || []; const ps = p || []; const ms = m || [];
+    
+    // Cálculo de Financeiro
+    const totalEntradas = vs.reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
+    const totalSaidas   = ms.filter(mov => mov.tipo === "saida").reduce((s, mov) => s + mov.valor, 0);
+    const lucroBruto    = totalEntradas; // Receita das vendas
+    
+    // Custo de mercadoria (opcional, se quiser lucro líquido absoluto)
     const custoMap   = Object.fromEntries(ps.map(p => [p.id, p.preco_custo]));
-    const totalCusto = vs.reduce((s, r) => s + (custoMap[r.produto_id] || 0) * r.quantidade, 0);
-    const totalLucro = totalGeral - totalCusto;
+    const custoProdutos = vs.reduce((s, r) => s + (custoMap[r.produto_id] || 0) * r.quantidade, 0);
+    
+    const lucroLiquidoReal = totalEntradas - totalSaidas - custoProdutos;
 
+    // Agrupa por dia para o gráfico
     const diasMap = {};
-    const tMap = {};
     vs.forEach(r => {
       const d = r.data_venda;
-      if (!diasMap[d]) diasMap[d] = { data: d, receita: 0, itens: 0 };
+      if (!diasMap[d]) diasMap[d] = { data: d, receita: 0, saida: 0 };
       diasMap[d].receita += r.preco_venda * r.quantidade;
-      diasMap[d].itens   += r.quantidade;
-
-      const t = r.turma || "Não informada";
-      if (!tMap[t]) tMap[t] = { nome: t, total: 0 };
-      tMap[t].total += r.preco_venda * r.quantidade;
+    });
+    ms.forEach(mov => {
+      const d = mov.created_at.split("T")[0];
+      if (!diasMap[d]) diasMap[d] = { data: d, receita: 0, saida: 0 };
+      if (mov.tipo === "saida") diasMap[d].saida += mov.valor;
     });
 
     const porDia = Object.values(diasMap)
       .sort((a, b) => a.data.localeCompare(b.data))
       .map(d => ({ ...d, data: d.data.slice(5).replace("-", "/") }));
     
-    const rankingTurmas = Object.values(tMap)
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5);
+    // Ranking de turmas
+    const tMap = {};
+    vs.forEach(r => {
+      const t = r.turma || "Não informada";
+      if (!tMap[t]) tMap[t] = { nome: t, total: 0 };
+      tMap[t].total += r.preco_venda * r.quantidade;
+    });
+    const rankingTurmas = Object.values(tMap).sort((a, b) => b.total - a.total).slice(0, 5);
 
-    let totalHoje;
+    // Stats de Hoje
+    let totalEntradasHoje = 0;
+    let totalSaidasHoje = 0;
     if (filtroData === "hoje") {
-      totalHoje = totalGeral;
+      totalEntradasHoje = totalEntradas;
+      totalSaidasHoje = totalSaidas;
     } else {
-      const { data: vHoje } = await supabase.from("vendas")
-        .select("preco_venda, quantidade")
-        .eq("status", "Pago e Entregue")
-        .eq("data_venda", dHoje);
-      totalHoje = (vHoje || []).reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
+      const [{ data: vh }, { data: mh }] = await Promise.all([
+        supabase.from("vendas").select("preco_venda, quantidade").eq("status", "Pago e Entregue").eq("data_venda", dHoje),
+        supabase.from("movimentacoes_financeiras").select("valor").eq("tipo", "saida").gte("created_at", dHoje)
+      ]);
+      totalEntradasHoje = (vh || []).reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
+      totalSaidasHoje = (mh || []).reduce((s, r) => s + r.valor, 0);
     }
 
-    setStats({ totalGeral, totalItens, totalPedidos: vs.length, totalLucro, totalHoje,
-               margemGeral: totalGeral > 0 ? (totalLucro / totalGeral * 100).toFixed(1) : 0 });
+    setStats({ 
+      totalEntradas, totalSaidas, lucroLiquidoReal, 
+      totalHoje: totalEntradasHoje - totalSaidasHoje,
+      totalPedidos: vs.length,
+      margemGeral: totalEntradas > 0 ? (lucroLiquidoReal / totalEntradas * 100).toFixed(1) : 0 
+    });
     setVendas(porDia);
     setTurmas(rankingTurmas);
     setProds(ps); 
@@ -419,35 +444,34 @@ function Dashboard() {
       )}
 
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
-        <StatCard label="Total no Período" value={fmtR(stats?.totalGeral)} icon="💰" color={C.green} />
-        <StatCard label="Lucro no Período" value={fmtR(stats?.totalLucro)} icon="📈" color={stats?.totalLucro >= 0 ? C.teal : C.red} />
-        <StatCard label="Margem Geral" value={fmtP(stats?.margemGeral)} icon="%" color={C.purple} />
-        <StatCard label="Vendas Hoje" value={fmtR(stats?.totalHoje)} icon="📅" color={C.gold} />
+        <StatCard label="Entradas (Vendas)" value={fmtR(stats?.totalEntradas)} icon="💰" color={C.teal} />
+        <StatCard label="Saídas (Gastos)" value={fmtR(stats?.totalSaidas)} icon="💸" color={C.red} />
+        <StatCard label="Lucro Líquido Real" value={fmtR(stats?.lucroLiquidoReal)} icon="📈" color={stats?.lucroLiquidoReal >= 0 ? C.green : C.red} sub="Já descontando custos" />
+        <StatCard label="Saldo Líquido Hoje" value={fmtR(stats?.totalHoje)} icon="📅" color={C.gold} />
       </div>
       
-      <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
-        <StatCard label="Itens Vendidos" value={stats?.totalItens} icon="📦" color={C.muted} />
-        <StatCard label="Nº de Vendas" value={stats?.totalPedidos} icon="🧾" color={C.muted} />
-        <StatCard label="Ticket Médio" icon="🎯" color={C.muted} value={stats?.totalPedidos > 0 ? fmtR(stats?.totalGeral / stats?.totalPedidos) : "—"} />
-      </div>
-
       <div className="chart-grid" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginBottom: 24 }}>
         <Card>
-          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>Receita por Dia</h3>
+          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>Fluxo de Caixa Diário</h3>
           {vendas.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={250}>
               <AreaChart data={vendas}>
                 <defs>
-                  <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="gradEntrada" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor={C.teal} stopOpacity={0.3} />
                     <stop offset="95%" stopColor={C.teal} stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradSaida" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={C.red} stopOpacity={0.2} />
+                    <stop offset="95%" stopColor={C.red} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                 <XAxis dataKey="data" tick={{ fill: C.muted, fontSize: 11 }} />
-                <YAxis tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8 }} formatter={v => [fmtR(v), "Receita"]} />
-                <Area type="monotone" dataKey="receita" stroke={C.teal} strokeWidth={2} fill="url(#grad)" />
+                <YAxis tick={{ fill: C.muted, fontSize: 11 }} />
+                <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8 }} />
+                <Area type="monotone" dataKey="receita" stroke={C.teal} name="Entradas" strokeWidth={2} fill="url(#gradEntrada)" />
+                <Area type="monotone" dataKey="saida" stroke={C.red} name="Saídas" strokeWidth={2} fill="url(#gradSaida)" />
               </AreaChart>
             </ResponsiveContainer>
           ) : <p style={{ color: C.muted, textAlign: "center", paddingTop: 60 }}>Sem dados no período</p>}
@@ -456,7 +480,7 @@ function Dashboard() {
         <Card>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>Ranking de Turmas (R$)</h3>
           {turmas.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={250}>
               <BarChart data={turmas} layout="vertical" margin={{ left: -10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                 <XAxis type="number" tick={{ fill: C.muted, fontSize: 11 }} />
