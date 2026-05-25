@@ -601,19 +601,37 @@ function NovaVenda() {
   const total = itens.reduce((s, it) => {
     const item = getProd(it.prodId, it.isKit);
     return s + (item ? (item.preco_normal || item.preco_venda) * it.qtd : 0);
-  }, 0);
-
   const registrar = async () => {
     const validos = itens.filter(it => it.prodId);
     if (!comprador.trim()) return setMsg({ t: "error", v: "Informe o comprador." });
     if (!validos.length) return setMsg({ t: "error", v: "Adicione itens." });
+
+    // --- VALIDAÇÃO DE ESTOQUE RIGOROSA ---
+    for (const it of validos) {
+      if (it.isKit) {
+        const kit = kits.find(k => k.id === it.prodId);
+        for (const ki of kit.kit_itens) {
+          const p = prods.find(p => p.id === ki.produto_id);
+          if (!p || p.estoque_atual < (ki.quantidade * it.qtd)) {
+            return setMsg({ t: "error", v: `Estoque insuficiente para o item "${p?.nome}" no kit.` });
+          }
+        }
+      } else {
+        const p = prods.find(p => p.id === it.prodId);
+        if (!p || p.estoque_atual < it.qtd) {
+          return setMsg({ t: "error", v: `Estoque insuficiente para "${p?.nome}". Disponível: ${p?.estoque_atual}` });
+        }
+      }
+    }
 
     setLoad(true); setMsg(null);
     let erros = [];
     const whatsLimpo = whatsapp.replace(/\D/g, "");
 
     for (const it of validos) {
-      const payload = {
+  ...
+    setLoad(false);
+  };
         comprador: comprador.trim(),
         whatsapp: whatsLimpo || null,
         turma: turma.trim(),
@@ -729,11 +747,10 @@ function Produtos() {
     setLoad(true); setMsg(null);
     const payload = {
       nome: form.nome.trim(), estoque_inicial: Number(form.estoque_inicial) || 0,
-      estoque_atual: editId ? undefined : Number(form.estoque_inicial) || 0,
+      estoque_atual: Number(form.estoque_inicial) || 0, // Agora atualiza o estoque atual também
       preco_normal: Number(form.preco_normal) || 0, preco_da: Number(form.preco_da) || 0,
       preco_custo: Number(form.preco_custo) || 0,
     };
-    if (editId) delete payload.estoque_atual;
     const { error } = editId ? await supabase.from("produtos").update(payload).eq("id", editId) : await supabase.from("produtos").insert(payload);
     if (error) setMsg({ t: "error", v: error.message.includes("unique") ? `Produto "${form.nome}" já existe.` : error.message });
     else {
