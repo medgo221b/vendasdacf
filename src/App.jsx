@@ -226,6 +226,16 @@ const TABS = [
 ];
 
 function Sidebar({ tab, setTab, onLogout, user }) {
+  const [alertas, setAlertas] = useState(0);
+
+  useEffect(() => {
+    supabase.from("produtos")
+      .select("id")
+      .eq("ativo", true)
+      .lte("estoque_atual", 5)
+      .then(({ data }) => setAlertas(data?.length || 0));
+  }, [tab]);
+
   return (
     <aside className="sidebar" style={{
       width: 220, height: "100vh", background: C.card,
@@ -254,9 +264,16 @@ function Sidebar({ tab, setTab, onLogout, user }) {
             background: tab === t.id ? C.teal + "22" : "transparent",
             color: tab === t.id ? C.teal : C.muted,
             fontWeight: tab === t.id ? 600 : 400, fontSize: 14, transition: "all .2s",
-            borderLeft: tab === t.id ? `3px solid ${C.teal}` : "3px solid transparent"
+            borderLeft: tab === t.id ? `3px solid ${C.teal}` : "3px solid transparent",
+            position: 'relative'
           }}>
             <span>{t.icon}</span> {t.label}
+            {t.id === 'produtos' && alertas > 0 && (
+              <span style={{ 
+                position: 'absolute', right: 10, background: C.red, color: '#fff', 
+                fontSize: 10, padding: '2px 6px', borderRadius: 10, fontWeight: 800 
+              }}>{alertas}</span>
+            )}
           </button>
         ))}
       </nav>
@@ -278,6 +295,7 @@ function Dashboard() {
   const [stats, setStats]    = useState(null);
   const [vendas, setVendas]  = useState([]);
   const [prods, setProds]    = useState([]);
+  const [turmas, setTurmas]  = useState([]);
   const [loading, setLoading] = useState(true);
   
   const [filtroData, setFiltroData] = useState("ultimo_mes");
@@ -313,15 +331,25 @@ function Dashboard() {
     const totalLucro = totalGeral - totalCusto;
 
     const diasMap = {};
+    const tMap = {};
     vs.forEach(r => {
       const d = r.data_venda;
       if (!diasMap[d]) diasMap[d] = { data: d, receita: 0, itens: 0 };
       diasMap[d].receita += r.preco_venda * r.quantidade;
       diasMap[d].itens   += r.quantidade;
+
+      const t = r.turma || "Não informada";
+      if (!tMap[t]) tMap[t] = { nome: t, total: 0 };
+      tMap[t].total += r.preco_venda * r.quantidade;
     });
+
     const porDia = Object.values(diasMap)
       .sort((a, b) => a.data.localeCompare(b.data))
       .map(d => ({ ...d, data: d.data.slice(5).replace("-", "/") }));
+    
+    const rankingTurmas = Object.values(tMap)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
 
     let totalHoje;
     if (filtroData === "hoje") {
@@ -337,6 +365,7 @@ function Dashboard() {
     setStats({ totalGeral, totalItens, totalPedidos: vs.length, totalLucro, totalHoje,
                margemGeral: totalGeral > 0 ? (totalLucro / totalGeral * 100).toFixed(1) : 0 });
     setVendas(porDia);
+    setTurmas(rankingTurmas);
     setProds(ps); 
     setLoading(false);
   }, [filtroData, dataDe, dataAte]);
@@ -351,6 +380,8 @@ function Dashboard() {
   }, [carregar]);
 
   if (loading && !stats) return <div style={{ color: C.muted, padding: 40 }}>Carregando...</div>;
+
+  const prodsCriticos = prods.filter(p => p.estoque_atual <= 5);
 
   return (
     <div>
@@ -371,6 +402,19 @@ function Dashboard() {
           <Btn variant="ghost" onClick={carregar} style={{ height: 40 }}>🔄</Btn>
         </div>
       </div>
+
+      {prodsCriticos.length > 0 && (
+        <Card style={{ background: C.red + '11', borderColor: C.red + '33', marginBottom: 24 }}>
+          <h4 style={{ color: C.red, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            ⚠️ ATENÇÃO: Produtos com estoque crítico
+          </h4>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {prodsCriticos.map(p => (
+              <Badge key={p.id} color={C.red}>{p.nome}: {p.estoque_atual} un.</Badge>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
         <StatCard label="Total no Período" value={fmtR(stats?.totalGeral)} icon="💰" color={C.green} />
@@ -408,6 +452,23 @@ function Dashboard() {
         </Card>
 
         <Card>
+          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>Ranking de Turmas (R$)</h3>
+          {turmas.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={turmas} layout="vertical" margin={{ left: -10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                <XAxis type="number" tick={{ fill: C.muted, fontSize: 11 }} />
+                <YAxis type="category" dataKey="nome" width={90} tick={{ fill: C.muted, fontSize: 10 }} />
+                <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8 }} formatter={v => [fmtR(v), "Total"]} />
+                <Bar dataKey="total" radius={[0, 6, 6, 0]} fill={C.gold} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <p style={{ color: C.muted, textAlign: "center", paddingTop: 60 }}>Sem dados de turmas</p>}
+        </Card>
+      </div>
+
+      <div className="chart-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+        <Card>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>Top Produtos (Vendas)</h3>
           {prods.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
@@ -422,6 +483,11 @@ function Dashboard() {
               </BarChart>
             </ResponsiveContainer>
           ) : <p style={{ color: C.muted, textAlign: "center", paddingTop: 60 }}>Sem dados ainda</p>}
+        </Card>
+
+        {/* Espaço reservado para Kit/Combo ou outra métrica futura */}
+        <Card style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', borderStyle: 'dashed' }}>
+          <p style={{ color: C.muted, fontSize: 14 }}>Funcionalidades de Kits em breve...</p>
         </Card>
       </div>
 
