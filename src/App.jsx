@@ -53,8 +53,8 @@ const globalCss = `
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
     background: url('logo.png') no-repeat center center;
-    background-size: 50%; /* Aumentei um pouco para aparecer mais */
-    opacity: 0.08; /* Aumentei a visibilidade da marca d'água */
+    background-size: 50%;
+    opacity: 0.08;
     pointer-events: none;
     z-index: -1;
   }
@@ -685,18 +685,65 @@ function Historico() {
   const [prods, setProds] = useState([]);
   const [loadSave, setLoadSave] = useState(false);
 
+  // Filtros de Data
+  const [filtroData, setFiltroData] = useState("todos"); 
+  const [dataDe, setDataDe]         = useState("");
+  const [dataAte, setDataAte]       = useState("");
+
   const carregar = useCallback(async () => {
     setLoading(true);
-    const { data: v } = await supabase.from("vendas").select("*").order("data_venda", { ascending: false }).order("created_at", { ascending: false }).limit(200);
+    let query = supabase.from("vendas").select("*");
+    
+    if (filtroData === "hoje") {
+      query = query.eq("data_venda", hoje());
+    } else if (filtroData === "mes") {
+      const inicioMes = new Date();
+      inicioMes.setDate(1);
+      query = query.gte("data_venda", inicioMes.toISOString().split("T")[0]);
+    } else if (filtroData === "custom") {
+      if (dataDe)  query = query.gte("data_venda", dataDe);
+      if (dataAte) query = query.lte("data_venda", dataAte);
+    }
+
+    const { data: v } = await query.order("data_venda", { ascending: false }).order("created_at", { ascending: false }).limit(500);
     const { data: p } = await supabase.from("produtos").select("*").eq("ativo", true);
     setVendas(v || []); setProds(p || []); setLoading(false);
-  }, []);
+  }, [filtroData, dataDe, dataAte]);
 
   useEffect(() => {
     carregar();
     const ch = supabase.channel("vendas_hist").on("postgres_changes", { event: "*", schema: "public", table: "vendas" }, carregar).subscribe();
     return () => supabase.removeChannel(ch);
   }, [carregar]);
+
+  const filtradas = vendas.filter(v => !filtro || v.comprador.toLowerCase().includes(filtro.toLowerCase()) || v.produto_nome.toLowerCase().includes(filtro.toLowerCase()));
+  const STATUS_COLOR = { "Pago e Entregue": C.green, "Pendente": C.gold, "Pago Aguardando": C.teal, "Reembolsado": C.red };
+
+  const exportarExcel = () => {
+    const dadosExcel = filtradas.map(v => ({
+      "DATA": v.data_venda?.split("-").reverse().join("/"),
+      "PRODUTO": v.produto_nome,
+      "COMPRADOR": v.comprador,
+      "TURMA": v.turma || "—",
+      "QTD": v.quantity,
+      "VALOR UNIT.": v.preco_venda,
+      "TOTAL": v.preco_venda * v.quantidade,
+      "PAGAMENTO": v.forma_pagamento,
+      "STATUS": v.status
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dadosExcel);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatório de Vendas");
+
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 25 }, { wch: 25 }, { wch: 10 }, 
+      { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 18 }
+    ];
+
+    const periodStr = filtroData === "todos" ? "Geral" : filtroData;
+    XLSX.writeFile(wb, `Relatorio_Vendas_DA_${periodStr}_${new Date().getTime()}.xlsx`);
+  };
 
   const salvarEdicao = async (e) => {
     e.preventDefault(); setLoadSave(true);
@@ -715,49 +762,32 @@ function Historico() {
     setLoadSave(false);
   };
 
-  const filtradas = vendas.filter(v => !filtro || v.comprador.toLowerCase().includes(filtro.toLowerCase()) || v.produto_nome.toLowerCase().includes(filtro.toLowerCase()));
-  const STATUS_COLOR = { "Pago e Entregue": C.green, "Pendente": C.gold, "Pago Aguardando": C.teal, "Reembolsado": C.red };
-
-  const exportarExcel = () => {
-    // 1. Prepara os dados para o Excel com nomes de colunas amigáveis
-    const dadosExcel = filtradas.map(v => ({
-      "Data": v.data_venda?.split("-").reverse().join("/"),
-      "Produto": v.produto_nome,
-      "Comprador": v.comprador,
-      "Turma": v.turma || "—",
-      "Quantidade": v.quantidade,
-      "Preço Unit.": fmtR(v.preco_venda),
-      "Total": fmtR(v.preco_venda * v.quantidade),
-      "Pagamento": v.forma_pagamento,
-      "Status": v.status
-    }));
-
-    // 2. Cria a planilha
-    const ws = XLSX.utils.json_to_sheet(dadosExcel);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Vendas");
-
-    // 3. Ajusta largura das colunas automaticamente
-    const colWidths = Object.keys(dadosExcel[0] || {}).map(key => ({
-      wch: Math.max(key.length, ...dadosExcel.map(d => String(d[key]).length)) + 2
-    }));
-    ws['!cols'] = colWidths;
-
-    // 4. Gera o download
-    const fileName = `Vendas_DA_${new Date().toLocaleDateString().replace(/\//g, "-")}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-  };
-
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, gap: 16, flexWrap: 'wrap' }}>
         <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800 }}>🗂️ Histórico</h1>
-        <Btn variant="ghost" onClick={exportarExcel} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>📥</span> Exportar para Excel
-        </Btn>
+        
+        <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: 'wrap' }}>
+          <Select label="Período" value={filtroData} onChange={e => setFiltroData(e.target.value)} style={{ width: 140 }}>
+            <option value="todos">Todos os dados</option>
+            <option value="hoje">Hoje</option>
+            <option value="mes">Mês Atual</option>
+            <option value="custom">Personalizado</option>
+          </Select>
+          {filtroData === "custom" && (
+            <>
+              <Input type="date" label="De" value={dataDe} onChange={e => setDataDe(e.target.value)} />
+              <Input type="date" label="Até" value={dataAte} onChange={e => setDataAte(e.target.value)} />
+            </>
+          )}
+          <Btn variant="ghost" onClick={exportarExcel} style={{ height: 40, display: 'flex', alignItems: 'center', gap: 8, background: C.green + '33', color: C.green, border: `1px solid ${C.green}44` }}>
+            <span>📥</span> Exportar Excel
+          </Btn>
+        </div>
       </div>
+      
       <Card>
-        <Input placeholder="Buscar..." value={filtro} onChange={e => setFiltro(e.target.value)} style={{ marginBottom: 16 }} />
+        <Input placeholder="Buscar por comprador ou produto..." value={filtro} onChange={e => setFiltro(e.target.value)} style={{ marginBottom: 16 }} />
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 700 }}>
             <thead>
