@@ -1106,11 +1106,16 @@ function Historico() {
                   <td style={{ padding: "9px 12px" }}>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => {
-                        const chavePix = "f8611096-7e96-4699-b37a-f11c36856780";
-                        const msg = `*PEDIDO CONFIRMADO* ✅\n\nOlá ${v.comprador}, seu pedido de *${v.quantidade}x ${v.produto_nome}* foi registrado!\n\n💰 *Total:* ${fmtR(v.preco_venda * v.quantidade)}\n\n--- COPIE A CHAVE PIX ABAIXO ---\n\n${chavePix}\n\n--- 👆👆👆 ---\n\nFavor enviar o comprovante por aqui. Obrigado! 🙏`;
+                        const msg = `*PEDIDO CONFIRMADO* ✅\n\nOlá ${v.comprador}, seu pedido de *${v.quantidade}x ${v.produto_nome}* foi registrado!\n\n💰 *Total:* ${fmtR(v.preco_venda * v.quantidade)}\n\nVou te enviar a chave PIX na próxima mensagem para facilitar a cópia! 👇`;
                         const tel = v.whatsapp ? v.whatsapp : "";
                         window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
-                      }} style={{ background: "none", border: "none", fontSize: 16 }} title="Enviar PIX / Confirmar Pedido">📑</button>
+                      }} style={{ background: "none", border: "none", fontSize: 16 }} title="Enviar Confirmação Pedido">📑</button>
+
+                      <button onClick={() => {
+                        const chavePix = "f8611096-7e96-4699-b37a-f11c36856780";
+                        navigator.clipboard.writeText(chavePix);
+                        alert("Chave PIX copiada! Agora basta colar no WhatsApp do aluno.");
+                      }} style={{ background: "none", border: "none", fontSize: 16 }} title="Copiar Chave PIX">📋</button>
                       
                       <button onClick={() => {
                         const msg = `*PAGAMENTO RECEBIDO* 💰\n\nOlá ${v.comprador}, confirmamos o recebimento do seu pagamento!\n\n📦 *Item:* ${v.produto_nome}\n✅ *Status:* Pago e Confirmado\n\nObrigado por apoiar o D.A. Cleusa Ferri! 🎓`;
