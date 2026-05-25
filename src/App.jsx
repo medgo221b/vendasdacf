@@ -1106,10 +1106,17 @@ function Historico() {
                   <td style={{ padding: "9px 12px" }}>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => {
-                        const msg = `Olá ${v.comprador}, o D.A. Cleusa Ferri confirma sua compra de ${v.quantidade}x ${v.produto_nome}. Total: ${fmtR(v.preco_venda * v.quantidade)}. Obrigado!`;
+                        const msg = `*PEDIDO CONFIRMADO* ✅\n\nOlá ${v.comprador}, seu pedido de *${v.quantidade}x ${v.produto_nome}* foi registrado!\n\n💰 *Total:* ${fmtR(v.preco_venda * v.quantidade)}\n\nPara finalizar, realize o pagamento via *PIX*:\n🔑 *Chave:* INSIRA_SUA_CHAVE_AQUI\n\nFavor enviar o comprovante por aqui. Obrigado! 🙏`;
                         const tel = v.whatsapp ? v.whatsapp : "";
                         window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
-                      }} style={{ background: "none", border: "none", fontSize: 16 }} title="Enviar Recibo WhatsApp">📱</button>
+                      }} style={{ background: "none", border: "none", fontSize: 16 }} title="Enviar PIX / Confirmar Pedido">📑</button>
+                      
+                      <button onClick={() => {
+                        const msg = `*PAGAMENTO RECEBIDO* 💰\n\nOlá ${v.comprador}, confirmamos o recebimento do seu pagamento!\n\n📦 *Item:* ${v.produto_nome}\n✅ *Status:* Pago e Confirmado\n\nObrigado por apoiar o D.A. Cleusa Ferri! 🎓`;
+                        const tel = v.whatsapp ? v.whatsapp : "";
+                        window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
+                      }} style={{ background: "none", border: "none", fontSize: 16 }} title="Confirmar Pagamento WhatsApp">✅</button>
+                      
                       <button onClick={() => setEditando({ ...v })} style={{ background: "none", border: "none", fontSize: 16 }}>✏️</button>
                       <button onClick={async () => { if (confirm(`Excluir?`)) { await supabase.rpc("ajustar_estoque", { p_id: v.produto_id, p_qtd: v.quantidade }); await supabase.from("vendas").delete().eq("id", v.id); carregar(); } }} style={{ background: "none", border: "none", fontSize: 16 }}>🗑️</button>
                     </div>
