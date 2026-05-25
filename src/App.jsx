@@ -22,7 +22,7 @@ const C = {
   red:    "#C0392B",
   purple: "#6B3FA0",
   bg:     "#081C15", 
-  card:   "rgba(17, 30, 53, 0.65)", // Card semi-transparente
+  card:   "rgba(17, 30, 53, 0.65)", 
   border: "rgba(30, 48, 80, 0.5)",
   text:   "#E8EDF5",
   muted:  "#7A90B0",
@@ -47,7 +47,6 @@ const globalCss = `
     position: relative;
   }
   
-  /* Marca d'água de fundo */
   body::before {
     content: "";
     position: fixed;
@@ -59,7 +58,6 @@ const globalCss = `
     z-index: -1;
   }
 
-  /* Efeito de vidro para os cards */
   .glass-card {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -70,7 +68,6 @@ const globalCss = `
   input, select, textarea { font-family: inherit; }
   button { cursor: pointer; font-family: inherit; }
 
-  /* Ajustes para telas pequenas */
   @media (max-width: 768px) {
     main { margin-left: 0 !important; padding: 16px !important; margin-top: 60px !important; }
     .sidebar { width: 100% !important; height: auto !important; position: fixed !important; top: 0 !important; left: 0 !important; border-right: none !important; border-bottom: 1px solid ${C.border} !important; z-index: 1000 !important; }
@@ -243,7 +240,7 @@ const MENU_ESTRUTURA = [
 
 function Sidebar({ tab, setTab, onLogout, user }) {
   const [alertas, setAlertas] = useState(0);
-  const [abertos, setAbus] = useState(["grupo_vendas", "grupo_produtos"]); // Mantém grupos abertos
+  const [abertos, setAbus] = useState(["grupo_vendas", "grupo_produtos"]);
 
   useEffect(() => {
     supabase.from("produtos").select("id").eq("ativo", true).lte("estoque_atual", 5)
@@ -355,18 +352,12 @@ function Dashboard() {
 
     const vs = v || []; const ps = p || []; const ms = m || [];
     
-    // Cálculo de Financeiro
     const totalEntradas = vs.reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
     const totalSaidas   = ms.filter(mov => mov.tipo === "saida").reduce((s, mov) => s + mov.valor, 0);
-    const lucroBruto    = totalEntradas; // Receita das vendas
-    
-    // Custo de mercadoria (opcional, se quiser lucro líquido absoluto)
     const custoMap   = Object.fromEntries(ps.map(p => [p.id, p.preco_custo]));
     const custoProdutos = vs.reduce((s, r) => s + (custoMap[r.produto_id] || 0) * r.quantidade, 0);
-    
     const lucroLiquidoReal = totalEntradas - totalSaidas - custoProdutos;
 
-    // Agrupa por dia para o gráfico
     const diasMap = {};
     vs.forEach(r => {
       const d = r.data_venda;
@@ -383,7 +374,6 @@ function Dashboard() {
       .sort((a, b) => a.data.localeCompare(b.data))
       .map(d => ({ ...d, data: d.data.slice(5).replace("-", "/") }));
     
-    // Ranking de turmas
     const tMap = {};
     vs.forEach(r => {
       const t = r.turma || "Não informada";
@@ -392,7 +382,6 @@ function Dashboard() {
     });
     const rankingTurmas = Object.values(tMap).sort((a, b) => b.total - a.total).slice(0, 5);
 
-    // Stats de Hoje
     let totalEntradasHoje = 0;
     let totalSaidasHoje = 0;
     if (filtroData === "hoje") {
@@ -473,6 +462,12 @@ function Dashboard() {
         <StatCard label="Lucro Líquido Real" value={fmtR(stats?.lucroLiquidoReal)} icon="📈" color={stats?.lucroLiquidoReal >= 0 ? C.green : C.red} sub="Período selecionado" />
       </div>
       
+      <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
+        <StatCard label="Itens Vendidos" value={stats?.totalItens} icon="📦" color={C.muted} />
+        <StatCard label="Nº de Vendas" value={stats?.totalPedidos} icon="🧾" color={C.muted} />
+        <StatCard label="Ticket Médio" icon="🎯" color={C.muted} value={stats?.totalPedidos > 0 ? fmtR(stats?.totalGeral / stats?.totalPedidos) : "—"} />
+      </div>
+
       <div className="chart-grid" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginBottom: 24 }}>
         <Card>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>Fluxo de Caixa Diário</h3>
@@ -581,6 +576,7 @@ function NovaVenda() {
   const [kits, setKits]         = useState([]);
   const [itens, setItens]       = useState([{ prodId: "", qtd: 1, isKit: false }]);
   const [comprador, setComprador] = useState("");
+  const [whatsapp, setWhatsapp]   = useState("");
   const [turma, setTurma]       = useState("");
   const [data, setData]         = useState(hoje());
   const [pgto, setPgto]         = useState("Pix");
@@ -600,7 +596,7 @@ function NovaVenda() {
   const addItem = () => setItens([...itens, { prodId: "", qtd: 1, isKit: false }]);
   const remItem = (i) => setItens(itens.filter((_, j) => j !== i));
   const setItem = (i, field, val) => setItens(itens.map((it, j) => j === i ? { ...it, [field]: val } : it));
-  
+
   const getProd = (id, isKit) => isKit ? kits.find(k => k.id === id) : prods.find(p => p.id === id);
   const total = itens.reduce((s, it) => {
     const item = getProd(it.prodId, it.isKit);
@@ -614,19 +610,25 @@ function NovaVenda() {
 
     setLoad(true); setMsg(null);
     let erros = [];
+    const whatsLimpo = whatsapp.replace(/\D/g, "");
 
     for (const it of validos) {
+      const payload = {
+        comprador: comprador.trim(),
+        whatsapp: whatsLimpo || null,
+        turma: turma.trim(),
+        data_venda: data,
+        quantidade: it.qtd,
+        forma_pagamento: pgto,
+        status: "Pago e Entregue"
+      };
+
       if (it.isKit) {
         const kit = kits.find(k => k.id === it.prodId);
         const { error } = await supabase.from("vendas").insert({
+          ...payload,
           produto_nome: `[KIT] ${kit.nome}`,
-          comprador: comprador.trim(),
-          turma: turma.trim(),
-          data_venda: data,
-          preco_venda: kit.preco_venda,
-          quantidade: it.qtd,
-          forma_pagamento: pgto,
-          status: "Pago e Entregue"
+          preco_venda: kit.preco_venda
         });
         
         if (error) erros.push(`Erro no kit: ${error.message}`);
@@ -635,11 +637,19 @@ function NovaVenda() {
         }
       } else {
         const p = prods.find(p => p.id === it.prodId);
-        const { data: res } = await supabase.rpc("registrar_venda", {
-          p_produto_id: it.prodId, p_comprador: comprador.trim(), p_turma: turma.trim(), 
-          p_data_venda: data, p_preco_venda: p.preco_normal, p_quantidade: it.qtd, p_forma_pagamento: pgto,
+        const { error } = await supabase.from("vendas").insert({
+          ...payload,
+          produto_id: it.prodId,
+          produto_nome: p.nome,
+          preco_venda: p.preco_normal
         });
-        if (!res?.ok) erros.push(res?.erro);
+        if (error) {
+          const { data: res } = await supabase.rpc("registrar_venda", {
+            p_produto_id: it.prodId, p_comprador: comprador.trim(), p_turma: turma.trim(),
+            p_data_venda: data, p_preco_venda: p.preco_normal, p_quantidade: it.qtd, p_forma_pagamento: pgto,
+          });
+          if (!res?.ok) erros.push(res?.erro || error.message);
+        }
       }
     }
 
@@ -647,7 +657,7 @@ function NovaVenda() {
     else {
       setMsg({ t: "success", v: "Venda registrada!" });
       setItens([{ prodId: "", qtd: 1, isKit: false }]);
-      setComprador(""); setTurma("");
+      setComprador(""); setWhatsapp(""); setTurma("");
     }
     setLoad(false);
   };
@@ -658,7 +668,8 @@ function NovaVenda() {
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div style={{ gridColumn: "1/-1" }}><Input label="Comprador *" value={comprador} onChange={e => setComprador(e.target.value)} /></div>
-          <Input label="Turma" value={turma} onChange={e => setTurma(e.target.value)} />
+          <Input label="WhatsApp (Opcional)" value={whatsapp} onChange={e => setWhatsapp(e.target.value)} placeholder="DD9XXXXXXXX" />
+          <Input label="Turma" value={turma} onChange={e => setTurma(e.target.value)} placeholder="Ex: T9" />
           <Input label="Data *" type="date" value={data} onChange={e => setData(e.target.value)} />
           <Select label="Pagamento" value={pgto} onChange={e => setPgto(e.target.value)} style={{ gridColumn: "1/-1" }}>
             {["Pix","Dinheiro","Cartão","Transferência"].map(o => <option key={o}>{o}</option>)}
@@ -1096,7 +1107,8 @@ function Historico() {
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => {
                         const msg = `Olá ${v.comprador}, o D.A. Cleusa Ferri confirma sua compra de ${v.quantidade}x ${v.produto_nome}. Total: ${fmtR(v.preco_venda * v.quantidade)}. Obrigado!`;
-                        window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                        const tel = v.whatsapp ? v.whatsapp : "";
+                        window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
                       }} style={{ background: "none", border: "none", fontSize: 16 }} title="Enviar Recibo WhatsApp">📱</button>
                       <button onClick={() => setEditando({ ...v })} style={{ background: "none", border: "none", fontSize: 16 }}>✏️</button>
                       <button onClick={async () => { if (confirm(`Excluir?`)) { await supabase.rpc("ajustar_estoque", { p_id: v.produto_id, p_qtd: v.quantidade }); await supabase.from("vendas").delete().eq("id", v.id); carregar(); } }} style={{ background: "none", border: "none", fontSize: 16 }}>🗑️</button>
