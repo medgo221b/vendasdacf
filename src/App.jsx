@@ -720,31 +720,63 @@ function Historico() {
   const STATUS_COLOR = { "Pago e Entregue": C.green, "Pendente": C.gold, "Pago Aguardando": C.teal, "Reembolsado": C.red };
 
   const exportarExcel = () => {
-    const dadosExcel = filtradas.map(v => ({
+    // 1. Dados da Planilha de Vendas
+    const dadosVendas = filtradas.map(v => ({
       "DATA": v.data_venda?.split("-").reverse().join("/"),
       "PRODUTO": v.produto_nome,
       "COMPRADOR": v.comprador,
       "TURMA": v.turma || "—",
-      "QTD": v.quantity,
+      "QTD": v.quantidade,
       "VALOR UNIT.": v.preco_venda,
       "TOTAL": v.preco_venda * v.quantidade,
       "PAGAMENTO": v.forma_pagamento,
       "STATUS": v.status
     }));
 
-    const ws = XLSX.utils.json_to_sheet(dadosExcel);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Relatório de Vendas");
+    // 2. Dados da Capa (Introdução Branded)
+    const periodoStr = filtroData === "todos" ? "Todo o Histórico" : 
+                      filtroData === "hoje" ? `Hoje (${hoje().split("-").reverse().join("/")})` :
+                      filtroData === "mes" ? "Mês Atual" : `Personalizado (${dataDe} até ${dataAte})`;
 
-    ws['!cols'] = [
-      { wch: 12 }, { wch: 25 }, { wch: 25 }, { wch: 10 }, 
-      { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 18 }
+    const dadosCapa = [
+      ["DIRETÓRIO ACADÊMICO CLEUSA FERRI - UAM SJC"],
+      ["GESTÃO 2026"],
+      [""],
+      ["RELATÓRIO OFICIAL DE VENDAS"],
+      [""],
+      ["RESUMO DO DOCUMENTO:"],
+      ["PERÍODO SELECIONADO:", periodoStr],
+      ["GERADO EM:", new Date().toLocaleString("pt-BR")],
+      [""],
+      ["MÉTRICAS DO PERÍODO:"],
+      ["Total de Itens Vendidos:", filtradas.reduce((s,v) => s + v.quantidade, 0)],
+      ["Nº Total de Pedidos:", filtradas.length],
+      ["Receita Bruta Total:", fmtR(filtradas.reduce((s, v) => s + (v.preco_venda * v.quantidade), 0))],
+      [""],
+      ["------------------------------------------------------------"],
+      ["ESTE É UM DOCUMENTO AUTOMATIZADO - D.A. CLEUSA FERRI 2026"]
     ];
 
-    const periodStr = filtroData === "todos" ? "Geral" : filtroData;
-    XLSX.writeFile(wb, `Relatorio_Vendas_DA_${periodStr}_${new Date().getTime()}.xlsx`);
-  };
+    // 3. Criação do Livro e Abas
+    const wb = XLSX.utils.book_new();
+    const wsVendas = XLSX.utils.json_to_sheet(dadosVendas);
+    const wsCapa = XLSX.utils.aoa_to_sheet(dadosCapa);
 
+    // Ajuste de largura das colunas para UX
+    wsVendas['!cols'] = [
+      { wch: 12 }, { wch: 30 }, { wch: 30 }, { wch: 10 }, 
+      { wch: 8 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }
+    ];
+    wsCapa['!cols'] = [{ wch: 35 }, { wch: 50 }];
+
+    XLSX.utils.book_append_sheet(wb, wsCapa, "CAPA");
+    XLSX.utils.book_append_sheet(wb, wsVendas, "LISTAGEM DE VENDAS");
+
+    // 4. Download com Nome Profissional
+    const timestamp = new Date().toISOString().slice(0,10);
+    const fileName = `Relatorio_Vendas_DA_CleusaFerri_${timestamp}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
   const salvarEdicao = async (e) => {
     e.preventDefault(); setLoadSave(true);
     const vAntiga = vendas.find(v => v.id === editando.id);
