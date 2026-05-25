@@ -387,7 +387,8 @@ function Dashboard() {
 
     setStats({ 
       totalEntradas, totalSaidas, lucroLiquidoReal, 
-      totalHoje: totalEntradasHoje - totalSaidasHoje,
+      faturamentoHoje: totalEntradasHoje,
+      saldoHoje: totalEntradasHoje - totalSaidasHoje,
       totalPedidos: vs.length,
       margemGeral: totalEntradas > 0 ? (lucroLiquidoReal / totalEntradas * 100).toFixed(1) : 0 
     });
@@ -444,10 +445,10 @@ function Dashboard() {
       )}
 
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
-        <StatCard label="Entradas (Vendas)" value={fmtR(stats?.totalEntradas)} icon="💰" color={C.teal} />
-        <StatCard label="Saídas (Gastos)" value={fmtR(stats?.totalSaidas)} icon="💸" color={C.red} />
-        <StatCard label="Lucro Líquido Real" value={fmtR(stats?.lucroLiquidoReal)} icon="📈" color={stats?.lucroLiquidoReal >= 0 ? C.green : C.red} sub="Já descontando custos" />
-        <StatCard label="Saldo Líquido Hoje" value={fmtR(stats?.totalHoje)} icon="📅" color={C.gold} />
+        <StatCard label="Faturamento Hoje" value={fmtR(stats?.faturamentoHoje)} icon="🚀" color={C.teal} sub="Total bruto vendido hoje" />
+        <StatCard label="Saldo de Caixa Hoje" value={fmtR(stats?.saldoHoje)} icon="👛" color={stats?.saldoHoje >= 0 ? C.green : C.red} sub="Entrou - Saiu hoje" />
+        <StatCard label="Faturamento Período" value={fmtR(stats?.totalEntradas)} icon="💰" color={C.green} />
+        <StatCard label="Lucro Líquido Real" value={fmtR(stats?.lucroLiquidoReal)} icon="📈" color={stats?.lucroLiquidoReal >= 0 ? C.green : C.red} sub="Período selecionado" />
       </div>
       
       <div className="chart-grid" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginBottom: 24 }}>
