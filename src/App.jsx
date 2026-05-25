@@ -1302,7 +1302,7 @@ function Financeiro() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                {["Data", "Dinheiro (Inf/Esp)", "Pix (Inf/Esp)", "Diferença", "Status"].map(h => (
+                {["Data", "Dinheiro (Inf/Esp)", "Pix (Inf/Esp)", "Diferença", "Status", ""].map(h => (
                   <th key={h} style={{ padding: '10px', textAlign: 'left', color: C.muted }}>{h}</th>
                 ))}
               </tr>
@@ -1317,6 +1317,17 @@ function Financeiro() {
                     <td style={{ padding: '10px' }}>{fmtR(c.valor_informado_pix)} / {fmtR(c.valor_esperado_pix)}</td>
                     <td style={{ padding: '10px', color: dif === 0 ? C.green : C.red, fontWeight: 700 }}>{fmtR(dif)}</td>
                     <td style={{ padding: '10px' }}><Badge color={dif === 0 ? C.green : C.red}>{dif === 0 ? "OK" : "Divergência"}</Badge></td>
+                    <td style={{ padding: '10px' }}>
+                      <button 
+                        onClick={async () => {
+                          if (confirm("Excluir este fechamento de caixa?")) {
+                            await supabase.from("caixas").delete().eq("id", c.id);
+                            carregar();
+                          }
+                        }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16 }}
+                      >🗑️</button>
+                    </td>
                   </tr>
                 );
               })}
