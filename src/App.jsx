@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
+import * as XLSX from "xlsx";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Cell
@@ -717,9 +718,44 @@ function Historico() {
   const filtradas = vendas.filter(v => !filtro || v.comprador.toLowerCase().includes(filtro.toLowerCase()) || v.produto_nome.toLowerCase().includes(filtro.toLowerCase()));
   const STATUS_COLOR = { "Pago e Entregue": C.green, "Pendente": C.gold, "Pago Aguardando": C.teal, "Reembolsado": C.red };
 
+  const exportarExcel = () => {
+    // 1. Prepara os dados para o Excel com nomes de colunas amigáveis
+    const dadosExcel = filtradas.map(v => ({
+      "Data": v.data_venda?.split("-").reverse().join("/"),
+      "Produto": v.produto_nome,
+      "Comprador": v.comprador,
+      "Turma": v.turma || "—",
+      "Quantidade": v.quantidade,
+      "Preço Unit.": fmtR(v.preco_venda),
+      "Total": fmtR(v.preco_venda * v.quantidade),
+      "Pagamento": v.forma_pagamento,
+      "Status": v.status
+    }));
+
+    // 2. Cria a planilha
+    const ws = XLSX.utils.json_to_sheet(dadosExcel);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Vendas");
+
+    // 3. Ajusta largura das colunas automaticamente
+    const colWidths = Object.keys(dadosExcel[0] || {}).map(key => ({
+      wch: Math.max(key.length, ...dadosExcel.map(d => String(d[key]).length)) + 2
+    }));
+    ws['!cols'] = colWidths;
+
+    // 4. Gera o download
+    const fileName = `Vendas_DA_${new Date().toLocaleDateString().replace(/\//g, "-")}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
   return (
     <div>
-      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>🗂️ Histórico</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, gap: 16, flexWrap: 'wrap' }}>
+        <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800 }}>🗂️ Histórico</h1>
+        <Btn variant="ghost" onClick={exportarExcel} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>📥</span> Exportar para Excel
+        </Btn>
+      </div>
       <Card>
         <Input placeholder="Buscar..." value={filtro} onChange={e => setFiltro(e.target.value)} style={{ marginBottom: 16 }} />
         <div style={{ overflowX: "auto" }}>
