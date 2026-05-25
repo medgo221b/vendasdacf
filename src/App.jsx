@@ -489,7 +489,7 @@ function Dashboard() {
 
         {/* Espaço reservado para Kit/Combo ou outra métrica futura */}
         <Card style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', borderStyle: 'dashed' }}>
-          <p style={{ color: C.muted, fontSize: 14 }}>Funcionalidades de Kits em breve...</p>
+          <p style={{ color: C.muted, fontSize: 14 }}>Módulo de Kits integrado à Nova Venda.</p>
         </Card>
       </div>
 
@@ -536,7 +536,8 @@ function Dashboard() {
 // ─── NOVA VENDA ─────────────────────────────────────────────────
 function NovaVenda() {
   const [prods, setProds]       = useState([]);
-  const [itens, setItens]       = useState([{ prodId: "", qtd: 1 }]);
+  const [kits, setKits]         = useState([]);
+  const [itens, setItens]       = useState([{ prodId: "", qtd: 1, isKit: false }]);
   const [comprador, setComprador] = useState("");
   const [turma, setTurma]       = useState("");
   const [data, setData]         = useState(hoje());
@@ -545,41 +546,66 @@ function NovaVenda() {
   const [load, setLoad]         = useState(false);
 
   useEffect(() => {
-    supabase.from("produtos").select("*").eq("ativo", true).then(({ data }) => setProds(data || []));
+    Promise.all([
+      supabase.from("produtos").select("*").eq("ativo", true),
+      supabase.from("kits").select("*, kit_itens(*)")
+    ]).then(([{ data: p }, { data: k }]) => {
+      setProds(p || []);
+      setKits(k || []);
+    });
   }, []);
 
-  const addItem = () => setItens([...itens, { prodId: "", qtd: 1 }]);
+  const addItem = () => setItens([...itens, { prodId: "", qtd: 1, isKit: false }]);
   const remItem = (i) => setItens(itens.filter((_, j) => j !== i));
   const setItem = (i, field, val) => setItens(itens.map((it, j) => j === i ? { ...it, [field]: val } : it));
-  const getProd = (id) => prods.find(p => p.id === id);
-  const usados = (idx) => new Set(itens.filter((_, j) => j !== idx).map(it => it.prodId));
+  
+  const getProd = (id, isKit) => isKit ? kits.find(k => k.id === id) : prods.find(p => p.id === id);
   const total = itens.reduce((s, it) => {
-    const p = getProd(it.prodId);
-    return s + (p ? p.preco_normal * it.qtd : 0);
+    const item = getProd(it.prodId, it.isKit);
+    return s + (item ? (item.preco_normal || item.preco_venda) * it.qtd : 0);
   }, 0);
 
   const registrar = async () => {
     const validos = itens.filter(it => it.prodId);
-    if (!comprador.trim()) return setMsg({ t: "error", v: "Informe o nome do comprador." });
-    if (!data) return setMsg({ t: "error", v: "Selecione a data." });
-    if (!validos.length) return setMsg({ t: "error", v: "Adicione ao menos um produto." });
+    if (!comprador.trim()) return setMsg({ t: "error", v: "Informe o comprador." });
+    if (!validos.length) return setMsg({ t: "error", v: "Adicione itens." });
+
     setLoad(true); setMsg(null);
     let erros = [];
+
     for (const it of validos) {
-      const { data: res } = await supabase.rpc("registrar_venda", {
-        p_produto_id: it.prodId, p_comprador: comprador.trim(), p_turma: turma.trim(), 
-        p_data_venda: data, p_preco_venda: getProd(it.prodId)?.preco_normal || 0,
-        p_quantidade: it.qtd, p_forma_pagamento: pgto,
-      });
-      if (!res?.ok) erros.push(res?.erro || "Erro desconhecido");
+      if (it.isKit) {
+        const kit = kits.find(k => k.id === it.prodId);
+        const { error } = await supabase.from("vendas").insert({
+          produto_nome: `[KIT] ${kit.nome}`,
+          comprador: comprador.trim(),
+          turma: turma.trim(),
+          data_venda: data,
+          preco_venda: kit.preco_venda,
+          quantidade: it.qtd,
+          forma_pagamento: pgto,
+          status: "Pago e Entregue"
+        });
+        
+        if (error) erros.push(`Erro no kit: ${error.message}`);
+        for (const ki of kit.kit_itens) {
+          await supabase.rpc("ajustar_estoque", { p_id: ki.produto_id, p_qtd: -(ki.quantidade * it.qtd) });
+        }
+      } else {
+        const p = prods.find(p => p.id === it.prodId);
+        const { data: res } = await supabase.rpc("registrar_venda", {
+          p_produto_id: it.prodId, p_comprador: comprador.trim(), p_turma: turma.trim(), 
+          p_data_venda: data, p_preco_venda: p.preco_normal, p_quantidade: it.qtd, p_forma_pagamento: pgto,
+        });
+        if (!res?.ok) erros.push(res?.erro);
+      }
     }
-    if (erros.length) {
-      setMsg({ t: "error", v: erros.join(" | ") });
-    } else {
-      setMsg({ t: "success", v: `${validos.length} produto(s) registrado(s)!` });
-      setItens([{ prodId: "", qtd: 1 }]); setComprador(""); setTurma(""); setData(hoje());
-      const { data: ps } = await supabase.from("produtos").select("*").eq("ativo", true);
-      setProds(ps || []);
+
+    if (erros.length) setMsg({ t: "error", v: erros.join(" | ") });
+    else {
+      setMsg({ t: "success", v: "Venda registrada!" });
+      setItens([{ prodId: "", qtd: 1, isKit: false }]);
+      setComprador(""); setTurma("");
     }
     setLoad(false);
   };
@@ -588,47 +614,39 @@ function NovaVenda() {
     <div style={{ maxWidth: 680, margin: "0 auto" }}>
       <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>🆕 Nova Venda</h1>
       <Card style={{ marginBottom: 16 }}>
-        <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 14, color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>Dados do pedido</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div style={{ gridColumn: "1/-1" }}>
-            <Input label="Nome do comprador *" value={comprador} onChange={e => setComprador(e.target.value)} placeholder="Ex: Maria Clara" />
-          </div>
-          <Input label="Turma" value={turma} onChange={e => setTurma(e.target.value)} placeholder="Ex: T9" />
+          <div style={{ gridColumn: "1/-1" }}><Input label="Comprador *" value={comprador} onChange={e => setComprador(e.target.value)} /></div>
+          <Input label="Turma" value={turma} onChange={e => setTurma(e.target.value)} />
           <Input label="Data *" type="date" value={data} onChange={e => setData(e.target.value)} />
-          <Select label="Forma de pagamento" value={pgto} onChange={e => setPgto(e.target.value)} style={{ gridColumn: "1/-1" }}>
+          <Select label="Pagamento" value={pgto} onChange={e => setPgto(e.target.value)} style={{ gridColumn: "1/-1" }}>
             {["Pix","Dinheiro","Cartão","Transferência"].map(o => <option key={o}>{o}</option>)}
           </Select>
         </div>
       </Card>
       <Card style={{ marginBottom: 16 }}>
-        <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 14, color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>Produtos</h3>
-        {itens.map((it, i) => {
-          const prod = getProd(it.prodId);
-          const exc  = usados(i);
-          return (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 36px", gap: 8, marginBottom: 12, alignItems: "end" }}>
-              <div>
-                <Select label={i === 0 ? "Produto" : ""} value={it.prodId} onChange={e => setItem(i, "prodId", e.target.value)}>
-                  <option value="">Selecionar...</option>
-                  {prods.filter(p => !exc.has(p.id) || p.id === it.prodId).map(p => (
-                    <option key={p.id} value={p.id} disabled={p.estoque_atual <= 0}>{p.nome} {p.estoque_atual <= 0 ? "(esgotado)" : `(${p.estoque_atual} un.)`}</option>
-                  ))}
-                </Select>
-                {prod && <p style={{ fontSize: 11, marginTop: 4, color: prod.estoque_atual <= 0 ? C.red : prod.estoque_atual <= 2 ? C.gold : C.green }}>{prod.estoque_atual <= 0 ? "⚠️ Esgotado" : `✓ ${prod.estoque_atual} un. | ${fmtR(prod.preco_normal)}`}</p>}
-              </div>
-              <Input label={i === 0 ? "Qtd" : ""} type="number" min={1} max={prod?.estoque_atual || 999} value={it.qtd} onChange={e => setItem(i, "qtd", parseInt(e.target.value) || 1)} style={{ textAlign: "center" }} />
-              <button onClick={() => remItem(i)} style={{ background: "#C0392B22", border: `1px solid ${C.red}44`, borderRadius: 8, color: C.red, width: 36, height: 36, fontSize: 18 }}>×</button>
-            </div>
-          );
-        })}
-        <Btn variant="ghost" onClick={addItem} style={{ width: "100%", marginBottom: 16 }}>+ Adicionar produto</Btn>
-        <div style={{ background: C.blue + "33", borderRadius: 12, padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ color: C.muted }}>Total do pedido</span>
-          <span style={{ fontFamily: "Syne", fontSize: 22, fontWeight: 800, color: C.teal }}>{fmtR(total)}</span>
+        <h3 style={{ fontSize: 14, color: C.muted, textTransform: 'uppercase', marginBottom: 16 }}>Itens da Venda</h3>
+        {itens.map((it, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr 80px 36px", gap: 8, marginBottom: 12, alignItems: "end" }}>
+            <Select label={i === 0 ? "Tipo" : ""} value={it.isKit ? "kit" : "prod"} onChange={e => setItem(i, "isKit", e.target.value === "kit")}>
+              <option value="prod">Produto</option>
+              <option value="kit">Combo/Kit</option>
+            </Select>
+            <Select label={i === 0 ? "Item" : ""} value={it.prodId} onChange={e => setItem(i, "prodId", e.target.value)}>
+              <option value="">Selecionar...</option>
+              {it.isKit ? kits.map(k => <option key={k.id} value={k.id}>{k.nome}</option>) : prods.map(p => <option key={p.id} value={p.id}>{p.nome} ({p.estoque_atual} un.)</option>)}
+            </Select>
+            <Input label={i === 0 ? "Qtd" : ""} type="number" value={it.qtd} onChange={e => setItem(i, "qtd", parseInt(e.target.value) || 1)} />
+            <button onClick={() => remItem(i)} style={{ background: "#C0392B22", border: `1px solid ${C.red}44`, borderRadius: 8, color: C.red, height: 38 }}>×</button>
+          </div>
+        ))}
+        <Btn variant="ghost" onClick={addItem} style={{ width: "100%", marginBottom: 16 }}>+ Adicionar item</Btn>
+        <div style={{ background: C.blue + "33", borderRadius: 12, padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>Total</span>
+          <span style={{ fontSize: 22, fontWeight: 800, color: C.teal }}>{fmtR(total)}</span>
         </div>
       </Card>
       <Alert msg={msg?.v} type={msg?.t} onClose={() => setMsg(null)} />
-      <Btn variant="success" onClick={registrar} disabled={load} style={{ width: "100%", padding: 14, fontSize: 15 }}>{load ? "Registrando..." : "✅ Registrar Venda"}</Btn>
+      <Btn variant="success" onClick={registrar} disabled={load} style={{ width: "100%", padding: 14 }}>{load ? "Registrando..." : "Finalizar Venda"}</Btn>
     </div>
   );
 }
@@ -744,6 +762,129 @@ function Produtos() {
   );
 }
 
+// ─── KITS / COMBOS ──────────────────────────────────────────────
+function Kits() {
+  const [kits, setKits]     = useState([]);
+  const [prods, setProds]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShow]  = useState(false);
+  const [form, setForm]     = useState({ nome: "", preco: "", itens: [{ prodId: "", qtd: 1 }] });
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    const [{ data: k }, { data: p }] = await Promise.all([
+      supabase.from("kits").select("*, kit_itens(id, produto_id, quantidade, produtos(nome))"),
+      supabase.from("produtos").select("*").eq("ativo", true)
+    ]);
+    setKits(k || []);
+    setProds(p || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const addItem = () => setForm({ ...form, itens: [...form.itens, { prodId: "", qtd: 1 }] });
+  const remItem = (i) => setForm({ ...form, itens: form.itens.filter((_, j) => j !== i) });
+  const setItem = (i, field, val) => {
+    const newItens = [...form.itens];
+    newItens[i][field] = val;
+    setForm({ ...form, itens: newItens });
+  };
+
+  const salvarKit = async (e) => {
+    e.preventDefault();
+    if (!form.nome || !form.preco || form.itens.some(it => !it.prodId)) return alert("Preencha tudo!");
+
+    const { data: kit, error: ek } = await supabase.from("kits").insert({
+      nome: form.nome,
+      preco_venda: Number(form.preco)
+    }).select().single();
+
+    if (ek) return alert(ek.message);
+
+    const itensPayload = form.itens.map(it => ({
+      kit_id: kit.id,
+      produto_id: it.prodId,
+      quantidade: it.qtd
+    }));
+
+    const { error: ei } = await supabase.from("kit_itens").insert(itensPayload);
+    if (ei) alert(ei.message);
+    else {
+      setShow(false); setForm({ nome: "", preco: "", itens: [{ prodId: "", qtd: 1 }] });
+      carregar();
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800 }}>🍱 Kits e Combos</h1>
+        <Btn variant="primary" onClick={() => setShow(true)}>+ Novo Kit</Btn>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
+        {kits.map(k => (
+          <Card key={k.id}>
+            <h3 style={{ fontFamily: 'Syne', fontSize: 18, marginBottom: 8 }}>{k.nome}</h3>
+            <p style={{ color: C.teal, fontWeight: 800, fontSize: 20, marginBottom: 16 }}>{fmtR(k.preco_venda)}</p>
+            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+              <p style={{ fontSize: 12, color: C.muted, marginBottom: 8, textTransform: 'uppercase' }}>Composição:</p>
+              {k.kit_itens?.map(it => (
+                <div key={it.id} style={{ fontSize: 13, marginBottom: 4 }}>
+                  • {it.quantidade}x {it.produtos?.nome}
+                </div>
+              ))}
+            </div>
+            <Btn variant="ghost" style={{ width: '100%', marginTop: 16, fontSize: 12, color: C.red }} onClick={async () => {
+              if (confirm('Excluir este kit?')) {
+                await supabase.from("kits").delete().eq("id", k.id);
+                carregar();
+              }
+            }}>Remover Kit</Btn>
+          </Card>
+        ))}
+      </div>
+
+      {showAdd && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <Card style={{ width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ fontFamily: 'Syne', marginBottom: 20 }}>Criar Novo Combo</h2>
+            <form onSubmit={salvarKit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <Input label="Nome do Kit" value={form.nome} onChange={e => setForm({...form, nome: e.target.value})} required placeholder="Ex: Kit Básico" />
+              <Input label="Preço de Venda (R$)" type="number" step="0.01" value={form.preco} onChange={e => setForm({...form, preco: e.target.value})} required placeholder="0,00" />
+              
+              <div style={{ background: C.bg, padding: 16, borderRadius: 12 }}>
+                <p style={{ fontSize: 12, color: C.muted, marginBottom: 12, textTransform: 'uppercase' }}>Produtos do Combo</p>
+                {form.itens.map((it, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                    <div style={{ flex: 1 }}>
+                      <Select label={i === 0 ? "Produto" : ""} value={it.prodId} onChange={e => setItem(i, 'prodId', e.target.value)}>
+                        <option value="">Escolha...</option>
+                        {prods.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                      </Select>
+                    </div>
+                    <div style={{ width: 70 }}>
+                      <Input label={i === 0 ? "Qtd" : ""} type="number" value={it.qtd} onChange={e => setItem(i, 'qtd', parseInt(e.target.value) || 1)} />
+                    </div>
+                    <button type="button" onClick={() => remItem(i)} style={{ padding: 10, background: 'none', border: 'none', color: C.red }}>×</button>
+                  </div>
+                ))}
+                <Btn variant="ghost" onClick={addItem} style={{ width: '100%', fontSize: 12, marginTop: 8 }}>+ Adicionar Item ao Combo</Btn>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Btn variant="ghost" onClick={() => setShow(false)} style={{ flex: 1 }}>Cancelar</Btn>
+                <Btn type="submit" variant="success" style={{ flex: 1 }}>Salvar Kit</Btn>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── HISTÓRICO DE VENDAS ─────────────────────────────────────────
 function Historico() {
   const [vendas, setVendas] = useState([]);
@@ -845,6 +986,7 @@ function Historico() {
     const fileName = `Relatorio_Vendas_DA_CleusaFerri_${timestamp}.xlsx`;
     XLSX.writeFile(wb, fileName);
   };
+
   const salvarEdicao = async (e) => {
     e.preventDefault(); setLoadSave(true);
     const vAntiga = vendas.find(v => v.id === editando.id);
@@ -948,18 +1090,6 @@ function Historico() {
           </Card>
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── KITS / COMBOS ──────────────────────────────────────────────
-function Kits() {
-  return (
-    <div style={{ maxWidth: 800, margin: '0 auto' }}>
-      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>🍱 Kits e Combos</h1>
-      <Card>
-        <p style={{ color: C.muted }}>Módulo de Kits em desenvolvimento...</p>
-      </Card>
     </div>
   );
 }
