@@ -494,15 +494,15 @@ function Dashboard() {
         </Card>
       </div>
 
-      <div className="chart-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+      <div className="chart-grid" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16, marginBottom: 24 }}>
         <Card>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>Top Produtos (Vendas)</h3>
           {prods.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={prods.filter(p => p.total_vendido > 0).sort((a,b) => b.total_vendido - a.total_vendido).slice(0,8)} layout="vertical" margin={{ left: -10 }}>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={prods.filter(p => p.total_vendido > 0).sort((a,b) => b.total_vendido - a.total_vendido).slice(0,10)} layout="vertical" margin={{ left: -10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                 <XAxis type="number" tick={{ fill: C.muted, fontSize: 11 }} />
-                <YAxis type="category" dataKey="nome" width={90} tick={{ fill: C.muted, fontSize: 10 }} tickFormatter={v => v.length > 12 ? v.slice(0, 12) + "…" : v} />
+                <YAxis type="category" dataKey="nome" width={110} tick={{ fill: C.muted, fontSize: 10 }} tickFormatter={v => v.length > 20 ? v.slice(0, 20) + "…" : v} />
                 <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8 }} formatter={v => [v + " un.", "Vendido"]} />
                 <Bar dataKey="total_vendido" radius={[0, 6, 6, 0]}>
                   {prods.map((_, i) => <Cell key={i} fill={[C.teal, C.green, C.purple, C.gold, C.blue][i % 5]} />)}
@@ -510,11 +510,6 @@ function Dashboard() {
               </BarChart>
             </ResponsiveContainer>
           ) : <p style={{ color: C.muted, textAlign: "center", paddingTop: 60 }}>Sem dados ainda</p>}
-        </Card>
-
-        {/* Espaço reservado para Kit/Combo ou outra métrica futura */}
-        <Card style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', borderStyle: 'dashed' }}>
-          <p style={{ color: C.muted, fontSize: 14 }}>Módulo de Kits integrado à Nova Venda.</p>
         </Card>
       </div>
 
