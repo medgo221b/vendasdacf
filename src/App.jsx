@@ -1127,7 +1127,7 @@ function Financeiro() {
   
   // Forms
   const [conferido, setConf]  = useState({ dinheiro: "", pix: "", observacao: "" });
-  const [gasto, setGasto]     = useState({ valor: "", descricao: "", tipo: "saida" });
+  const [gasto, setGasto]     = useState({ valor: "", descricao: "", tipo: "saida", status: "Pago", id: null });
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -1175,16 +1175,29 @@ function Financeiro() {
     e.preventDefault();
     if (!gasto.valor || !gasto.descricao) return alert("Preencha valor e descrição!");
     
-    const { error } = await supabase.from("movimentacoes_financeiras").insert({
+    const payload = {
       tipo: gasto.tipo,
       valor: Number(gasto.valor),
-      descricao: gasto.descricao
-    });
+      descricao: gasto.descricao,
+      status: gasto.status || "Pago"
+    };
+
+    const { error } = gasto.id 
+      ? await supabase.from("movimentacoes_financeiras").update(payload).eq("id", gasto.id)
+      : await supabase.from("movimentacoes_financeiras").insert(payload);
 
     if (error) alert("Erro ao salvar: " + error.message);
     else {
-      setShowGasto(false); setGasto({ valor: "", descricao: "", tipo: "saida" });
+      setShowGasto(false); setGasto({ valor: "", descricao: "", tipo: "saida", status: "Pago", id: null });
       carregar();
+    }
+  };
+
+  const excluirMov = async (id) => {
+    if (confirm("Excluir este registro permanentemente?")) {
+      const { error } = await supabase.from("movimentacoes_financeiras").delete().eq("id", id);
+      if (error) alert(error.message);
+      else carregar();
     }
   };
 
@@ -1193,7 +1206,7 @@ function Financeiro() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
         <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800 }}>💸 Financeiro e Caixa</h1>
         <div style={{ display: 'flex', gap: 10 }}>
-          <Btn variant="ghost" onClick={() => setShowGasto(true)}>🧾 Registrar Gasto</Btn>
+          <Btn variant="ghost" onClick={() => { setGasto({ valor: "", descricao: "", tipo: "saida", status: "Pago", id: null }); setShowGasto(true); }}>🧾 Registrar Gasto</Btn>
           <Btn variant="success" onClick={() => setShow(true)}>🔒 Fechar Caixa do Dia</Btn>
         </div>
       </div>
@@ -1212,15 +1225,24 @@ function Financeiro() {
         </Card>
 
         <Card style={{ background: C.navy + '33' }}>
-          <h3 style={{ fontSize: 14, color: C.muted, textTransform: 'uppercase', marginBottom: 16 }}>Últimas Movimentações (Saídas)</h3>
-          <div style={{ maxHeight: 150, overflowY: 'auto' }}>
+          <h3 style={{ fontSize: 14, color: C.muted, textTransform: 'uppercase', marginBottom: 16 }}>Últimas Movimentações</h3>
+          <div style={{ maxHeight: 200, overflowY: 'auto' }}>
             {movimentos.map(m => (
-              <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${C.border}22`, fontSize: 13 }}>
-                <div>
-                  <span style={{ color: C.muted, fontSize: 11, marginRight: 8 }}>{new Date(m.created_at).toLocaleDateString()}</span>
-                  <span>{m.descricao}</span>
+              <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}22`, fontSize: 13 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: C.muted, fontSize: 10 }}>{new Date(m.created_at).toLocaleDateString()}</span>
+                    <Badge color={m.status === 'Sinal/Parcial' ? C.gold : m.status === 'Agendado' ? C.purple : C.red}>{m.status || 'Pago'}</Badge>
+                  </div>
+                  <div style={{ fontWeight: 500, marginTop: 2 }}>{m.descricao}</div>
                 </div>
-                <span style={{ color: C.red, fontWeight: 700 }}>- {fmtR(m.valor)}</span>
+                <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ color: C.red, fontWeight: 700 }}>- {fmtR(m.valor)}</span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button onClick={() => { setGasto({ ...m }); setShowGasto(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>✏️</button>
+                    <button onClick={() => excluirMov(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>🗑️</button>
+                  </div>
+                </div>
               </div>
             ))}
             {movimentos.length === 0 && <p style={{ color: C.muted, fontSize: 12 }}>Nenhum gasto registrado.</p>}
@@ -1283,13 +1305,20 @@ function Financeiro() {
       {showGasto && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
           <Card style={{ width: '100%', maxWidth: 450 }}>
-            <h2 style={{ fontFamily: 'Syne', marginBottom: 20 }}>🧾 Registrar Gasto/Saída</h2>
+            <h2 style={{ fontFamily: 'Syne', marginBottom: 20 }}>{gasto.id ? '✏️ Editar Gasto' : '🧾 Registrar Gasto'}</h2>
             <form onSubmit={salvarGasto} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <Input label="Valor do Gasto (R$)" type="number" step="0.01" value={gasto.valor} onChange={e => setGasto({...gasto, valor: e.target.value})} required placeholder="0,00" />
-              <Input label="Descrição / Motivo" value={gasto.descricao} onChange={e => setGasto({...gasto, descricao: e.target.value})} required placeholder="Ex: Pagamento Fornecedor Camisetas" />
+              <Input label="Valor (R$)" type="number" step="0.01" value={gasto.valor} onChange={e => setGasto({...gasto, valor: e.target.value})} required placeholder="0,00" />
+              <Input label="Descrição / Motivo" value={gasto.descricao} onChange={e => setGasto({...gasto, descricao: e.target.value})} required placeholder="Ex: Pagamento Fornecedor" />
+              
+              <Select label="Status do Pagamento" value={gasto.status || "Pago"} onChange={e => setGasto({...gasto, status: e.target.value})}>
+                <option value="Pago">Pago (Total)</option>
+                <option value="Sinal/Parcial">Sinal / Parcial</option>
+                <option value="Agendado">Agendado / Pendente</option>
+              </Select>
+
               <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
                 <Btn variant="ghost" onClick={() => setShowGasto(false)} style={{ flex: 1 }}>Cancelar</Btn>
-                <Btn type="submit" variant="danger" style={{ flex: 1 }}>Salvar Gasto</Btn>
+                <Btn type="submit" variant="success" style={{ flex: 1 }}>{gasto.id ? 'Salvar Alterações' : 'Registrar'}</Btn>
               </div>
             </form>
           </Card>
