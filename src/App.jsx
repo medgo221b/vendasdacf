@@ -1106,7 +1106,8 @@ function Historico() {
                   <td style={{ padding: "9px 12px" }}>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => {
-                        const msg = `*PEDIDO CONFIRMADO* ✅\n\nOlá ${v.comprador}, seu pedido de *${v.quantidade}x ${v.produto_nome}* foi registrado!\n\n💰 *Total:* ${fmtR(v.preco_venda * v.quantidade)}\n\nPara finalizar, realize o pagamento via *PIX*:\n🔑 *Chave:* INSIRA_SUA_CHAVE_AQUI\n\nFavor enviar o comprovante por aqui. Obrigado! 🙏`;
+                        const chavePix = "f8611096-7e96-4699-b37a-f11c36856780";
+                        const msg = `*PEDIDO CONFIRMADO* ✅\n\nOlá ${v.comprador}, seu pedido de *${v.quantidade}x ${v.produto_nome}* foi registrado!\n\n💰 *Total:* ${fmtR(v.preco_venda * v.quantidade)}\n\n--- COPIE A CHAVE PIX ABAIXO ---\n\n${chavePix}\n\n--- 👆👆👆 ---\n\nFavor enviar o comprovante por aqui. Obrigado! 🙏`;
                         const tel = v.whatsapp ? v.whatsapp : "";
                         window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
                       }} style={{ background: "none", border: "none", fontSize: 16 }} title="Enviar PIX / Confirmar Pedido">📑</button>
