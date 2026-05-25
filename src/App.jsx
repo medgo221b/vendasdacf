@@ -1196,32 +1196,16 @@ function Financeiro() {
     e.preventDefault();
     const dataAlvo = conferido.data_fechamento || hoje();
     
-    // 1. Verifica se já existe um fechamento para esta data no banco
-    const { data: existente } = await supabase
-      .from("caixas")
-      .select("id")
-      .eq("data_fechamento", dataAlvo)
-      .maybeSingle();
+    const { error } = await supabase.rpc("fechar_ou_atualizar_caixa", {
+      p_data: dataAlvo,
+      p_esp_dinheiro: conferido.id ? conferido.valor_esperado_dinheiro : totalSistema.dinheiro,
+      p_inf_dinheiro: Number(conferido.dinheiro) || 0,
+      p_esp_pix: conferido.id ? conferido.valor_esperado_pix : totalSistema.pix,
+      p_inf_pix: Number(conferido.pix) || 0,
+      p_obs: conferido.observacao
+    });
 
-    const payload = {
-      data_fechamento: dataAlvo,
-      valor_esperado_dinheiro: (conferido.id || existente) ? (conferido.valor_esperado_dinheiro || 0) : totalSistema.dinheiro,
-      valor_informado_dinheiro: Number(conferido.dinheiro) || 0,
-      valor_esperado_pix: (conferido.id || existente) ? (conferido.valor_esperado_pix || 0) : totalSistema.pix,
-      valor_informado_pix: Number(conferido.pix) || 0,
-      observacao: conferido.observacao
-    };
-
-    let res;
-    if (existente?.id || conferido.id) {
-      // 2. Se existe, força o UPDATE usando o ID
-      res = await supabase.from("caixas").update(payload).eq("id", existente?.id || conferido.id);
-    } else {
-      // 3. Se não existe nenhum registro para hoje, faz o INSERT
-      res = await supabase.from("caixas").insert(payload);
-    }
-
-    if (res.error) alert("Erro ao salvar: " + res.error.message);
+    if (error) alert("Erro ao salvar: " + error.message);
     else {
       setShow(false);
       setConf({ dinheiro: "", pix: "", observacao: "", id: null });
