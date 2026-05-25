@@ -966,12 +966,136 @@ function Kits() {
 
 // ─── FINANCEIRO ─────────────────────────────────────────────────
 function Financeiro() {
+  const [caixas, setCaixas]     = useState([]);
+  const [movimentos, setMovs]   = useState([]);
+  const [vendasHoje, setVendas] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  
+  // Form de Fechamento
+  const [showFechar, setShow] = useState(false);
+  const [conferido, setConf]  = useState({ dinheiro: "", pix: "", observacao: "" });
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    const dHoje = hoje();
+    
+    const [{ data: c }, { data: m }, { data: v }] = await Promise.all([
+      supabase.from("caixas").select("*").order("data_fechamento", { ascending: false }).limit(30),
+      supabase.from("movimentacoes_financeiras").select("*").order("created_at", { ascending: false }).limit(50),
+      supabase.from("vendas").select("*").eq("data_venda", dHoje).eq("status", "Pago e Entregue")
+    ]);
+
+    setCaixas(c || []);
+    setMovs(m || []);
+    setVendas(v || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const totalSistema = {
+    dinheiro: vendasHoje.filter(v => v.forma_pagamento === "Dinheiro").reduce((s, v) => s + (v.preco_venda * v.quantidade), 0),
+    pix: vendasHoje.filter(v => v.forma_pagamento === "Pix").reduce((s, v) => s + (v.preco_venda * v.quantidade), 0)
+  };
+
+  const fecharCaixa = async (e) => {
+    e.preventDefault();
+    const payload = {
+      data_fechamento: hoje(),
+      valor_esperado_dinheiro: totalSistema.dinheiro,
+      valor_informado_dinheiro: Number(conferido.dinheiro) || 0,
+      valor_esperado_pix: totalSistema.pix,
+      valor_informado_pix: Number(conferido.pix) || 0,
+      observacao: conferido.observacao
+    };
+
+    const { error } = await supabase.from("caixas").insert(payload);
+    if (error) alert("Erro ao fechar caixa: " + error.message);
+    else {
+      setShow(false); setConf({ dinheiro: "", pix: "", observacao: "" });
+      carregar();
+    }
+  };
+
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>💸 Financeiro</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800 }}>💸 Financeiro e Caixa</h1>
+        <Btn variant="success" onClick={() => setShow(true)}>🔒 Fechar Caixa do Dia</Btn>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
+        <Card>
+          <h3 style={{ fontSize: 14, color: C.muted, textTransform: 'uppercase', marginBottom: 16 }}>Esperado em Caixa (Hoje)</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span>💵 Dinheiro:</span>
+            <span style={{ fontWeight: 700, color: C.green }}>{fmtR(totalSistema.dinheiro)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>📱 Pix/Transferência:</span>
+            <span style={{ fontWeight: 700, color: C.teal }}>{fmtR(totalSistema.pix)}</span>
+          </div>
+        </Card>
+
+        <Card style={{ background: C.navy + '55' }}>
+          <h3 style={{ fontSize: 14, color: C.muted, textTransform: 'uppercase', marginBottom: 16 }}>Resumo de Movimentações</h3>
+          <p style={{ fontSize: 12 }}>Registre aqui gastos com fornecedores ou saídas administrativas.</p>
+          <Btn variant="ghost" style={{ marginTop: 12, fontSize: 12 }} onClick={() => alert('Função de registro de gastos em breve!')}>+ Registrar Saída/Gasto</Btn>
+        </Card>
+      </div>
+
       <Card>
-        <p style={{ color: C.muted }}>Módulo Financeiro (Caixa e Custos) em desenvolvimento...</p>
+        <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Histórico de Fechamentos</h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                {["Data", "Dinheiro (Inf/Esp)", "Pix (Inf/Esp)", "Diferença", "Status"].map(h => (
+                  <th key={h} style={{ padding: '10px', textAlign: 'left', color: C.muted }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {caixas.map(c => {
+                const dif = (c.valor_informado_dinheiro + c.valor_informado_pix) - (c.valor_esperado_dinheiro + c.valor_esperado_pix);
+                return (
+                  <tr key={c.id} style={{ borderBottom: `1px solid ${C.border}22` }}>
+                    <td style={{ padding: '10px' }}>{c.data_fechamento?.split('-').reverse().join('/')}</td>
+                    <td style={{ padding: '10px' }}>{fmtR(c.valor_informado_dinheiro)} / {fmtR(c.valor_esperado_dinheiro)}</td>
+                    <td style={{ padding: '10px' }}>{fmtR(c.valor_informado_pix)} / {fmtR(c.valor_esperado_pix)}</td>
+                    <td style={{ padding: '10px', color: dif === 0 ? C.green : C.red, fontWeight: 700 }}>{fmtR(dif)}</td>
+                    <td style={{ padding: '10px' }}><Badge color={dif === 0 ? C.green : C.red}>{dif === 0 ? "OK" : "Divergência"}</Badge></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </Card>
+
+      {showFechar && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <Card style={{ width: '100%', maxWidth: 450 }}>
+            <h2 style={{ fontFamily: 'Syne', marginBottom: 20 }}>Fechamento de Caixa</h2>
+            <form onSubmit={fecharCaixa} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <Input label="Total em Dinheiro (Físico)" type="number" step="0.01" value={conferido.dinheiro} onChange={e => setConf({...conferido, dinheiro: e.target.value})} required placeholder="0,00" />
+              <Input label="Total em Pix (Conferido no extrato)" type="number" step="0.01" value={conferido.pix} onChange={e => setConf({...conferido, pix: e.target.value})} required placeholder="0,00" />
+              <Input label="Observações" value={conferido.observacao} onChange={e => setConf({...conferido, observacao: e.target.value})} placeholder="Ex: Faltou troco, erro na maquininha..." />
+              
+              <div style={{ background: C.bg, padding: 12, borderRadius: 8, fontSize: 13 }}>
+                <p style={{ color: C.muted }}>O sistema calculou que hoje você vendeu:</p>
+                <p><strong>Dinheiro:</strong> {fmtR(totalSistema.dinheiro)}</p>
+                <p><strong>Pix:</strong> {fmtR(totalSistema.pix)}</p>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Btn variant="ghost" onClick={() => setShow(false)} style={{ flex: 1 }}>Cancelar</Btn>
+                <Btn type="submit" variant="success" style={{ flex: 1 }}>Confirmar Fechamento</Btn>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
