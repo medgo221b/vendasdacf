@@ -1104,9 +1104,8 @@ function Historico() {
                   <td style={{ padding: "9px 12px", color: C.muted }}>{v.forma_pagamento}</td>
                   <td style={{ padding: "9px 12px" }}><Badge color={STATUS_COLOR[v.status] || C.muted}>{v.status}</Badge></td>
                   <td style={{ padding: "9px 12px" }}>
-                    <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => {
-                        const msg = `*PEDIDO CONFIRMADO* ✅\n\nOlá ${v.comprador}, seu pedido de *${v.quantidade}x ${v.produto_nome}* foi registrado!\n\n💰 *Total:* ${fmtR(v.preco_venda * v.quantidade)}\n\nVou te enviar a chave PIX na próxima mensagem para facilitar a cópia! 👇`;
+                        const msg = `*PEDIDO CONFIRMADO* \u2705\n\nOlá ${v.comprador}, seu pedido de *${v.quantidade}x ${v.produto_nome}* foi registrado!\n\n\ud83d\udcb0 *Total:* ${fmtR(v.preco_venda * v.quantidade)}\n\nVou te enviar a chave PIX na próxima mensagem para facilitar a cópia! \ud83d\udc47`;
                         const tel = v.whatsapp ? v.whatsapp : "";
                         window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
                       }} style={{ background: "none", border: "none", fontSize: 16 }} title="Enviar Confirmação Pedido">📑</button>
@@ -1118,7 +1117,7 @@ function Historico() {
                       }} style={{ background: "none", border: "none", fontSize: 16 }} title="Copiar Chave PIX">📋</button>
                       
                       <button onClick={() => {
-                        const msg = `*PAGAMENTO RECEBIDO* 💰\n\nOlá ${v.comprador}, confirmamos o recebimento do seu pagamento!\n\n📦 *Item:* ${v.produto_nome}\n✅ *Status:* Pago e Confirmado\n\nObrigado por apoiar o D.A. Cleusa Ferri! 🎓`;
+                        const msg = `*PAGAMENTO RECEBIDO* \ud83d\udcb0\n\nOlá ${v.comprador}, confirmamos o recebimento do seu pagamento!\n\n\ud83d\udce6 *Item:* ${v.produto_nome}\n\u2705 *Status:* Pago e Confirmado\n\nObrigado por apoiar o D.A. Cleusa Ferri! \ud83c\udf93`;
                         const tel = v.whatsapp ? v.whatsapp : "";
                         window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
                       }} style={{ background: "none", border: "none", fontSize: 16 }} title="Confirmar Pagamento WhatsApp">✅</button>
