@@ -1263,10 +1263,12 @@ function Financeiro() {
       <Card>
         <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Histórico de Fechamentos</h3>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${C.border}`, color: C.muted }}>
-                {["Data", "Dinheiro (Inf/Esp)", "Pix (Inf/Esp)", "Diferença", "Status", "Ações"].map(h => <th key={h} style={{ padding: '12px 10px', textAlign: 'left' }}>{h}</th>)}
+                {["Data", "Dinheiro (Inf/Esp)", "Pix (Inf/Esp)", "Dif.", "Status", "Ações"].map(h => (
+                  <th key={h} style={{ padding: '12px 8px', textAlign: 'left' }}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -1274,15 +1276,23 @@ function Financeiro() {
                 const dif = (c.valor_informado_dinheiro + c.valor_informado_pix) - (c.valor_esperado_dinheiro + c.valor_esperado_pix);
                 return (
                   <tr key={c.id} style={{ borderBottom: `1px solid ${C.border}22` }}>
-                    <td style={{ padding: '12px 10px' }}>{c.data_fechamento?.split('-').reverse().join('/')}</td>
-                    <td style={{ padding: '12px 10px' }}>{fmtR(c.valor_informado_dinheiro)} / {fmtR(c.valor_esperado_dinheiro)}</td>
-                    <td style={{ padding: '12px 10px' }}>{fmtR(c.valor_informado_pix)} / {fmtR(c.valor_esperado_pix)}</td>
-                    <td style={{ padding: '12px 10px', color: dif === 0 ? C.green : C.red, fontWeight: 700 }}>{fmtR(dif)}</td>
-                    <td style={{ padding: '12px 10px' }}><Badge color={dif === 0 ? C.green : C.red}>{dif === 0 ? "OK" : "Divergência"}</Badge></td>
-                    <td style={{ padding: '12px 10px' }}>
-                      <div style={{ display: 'flex', gap: 10 }}>
-                        <button onClick={() => { setConf({ ...c, dinheiro: c.valor_informado_dinheiro, pix: c.valor_informado_pix }); setShow(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16 }}>✏️</button>
-                        <button onClick={() => excluirCaixa(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16 }}>🗑️</button>
+                    <td style={{ padding: '12px 8px' }}>{c.data_fechamento?.split('-').reverse().join('/')}</td>
+                    <td style={{ padding: '12px 8px', whiteSpace: 'nowrap' }}>{fmtR(c.valor_informado_dinheiro)} / {fmtR(c.valor_esperado_dinheiro)}</td>
+                    <td style={{ padding: '12px 8px', whiteSpace: 'nowrap' }}>{fmtR(c.valor_informado_pix)} / {fmtR(c.valor_esperado_pix)}</td>
+                    <td style={{ padding: '12px 8px', color: dif === 0 ? C.green : C.red, fontWeight: 700 }}>{fmtR(dif)}</td>
+                    <td style={{ padding: '12px 8px' }}><Badge color={dif === 0 ? C.green : C.red}>{dif === 0 ? "OK" : "Erro"}</Badge></td>
+                    <td style={{ padding: '12px 8px', width: 80 }}>
+                      <div style={{ display: 'flex', gap: 12 }}>
+                        <button 
+                          onClick={() => { setConf({ ...c, dinheiro: c.valor_informado_dinheiro, pix: c.valor_informado_pix }); setShow(true); }} 
+                          style={{ background: C.teal + '22', border: 'none', borderRadius: 6, padding: 6, cursor: 'pointer', fontSize: 14 }}
+                          title="Editar"
+                        >✏️</button>
+                        <button 
+                          onClick={() => excluirCaixa(c.id)} 
+                          style={{ background: C.red + '22', border: 'none', borderRadius: 6, padding: 6, cursor: 'pointer', fontSize: 14 }}
+                          title="Excluir"
+                        >🗑️</button>
                       </div>
                     </td>
                   </tr>
