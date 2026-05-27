@@ -635,8 +635,10 @@ function NovaVenda() {
         });
         
         if (error) erros.push(`Erro no kit: ${error.message}`);
-        for (const ki of kit.kit_itens) {
-          await supabase.rpc("ajustar_estoque", { p_id: ki.produto_id, p_qtd: -(ki.quantidade * it.qtd) });
+        else {
+          for (const ki of kit.kit_itens) {
+            await supabase.rpc("ajustar_estoque", { p_id: ki.produto_id, p_qtd: -(ki.quantidade * it.qtd) });
+          }
         }
       } else {
         const p = prods.find(p => p.id === it.prodId);
@@ -646,12 +648,12 @@ function NovaVenda() {
           produto_nome: p.nome,
           preco_venda: p.preco_normal
         });
+
         if (error) {
-          const { data: res } = await supabase.rpc("registrar_venda", {
-            p_produto_id: it.prodId, p_comprador: comprador.trim(), p_turma: turma.trim(),
-            p_data_venda: data, p_preco_venda: p.preco_normal, p_quantidade: it.qtd, p_forma_pagamento: pgto,
-          });
-          if (!res?.ok) erros.push(res?.erro || error.message);
+          erros.push(`Erro na venda: ${error.message}`);
+        } else {
+          // DIMINUIR ESTOQUE DO PRODUTO INDIVIDUAL
+          await supabase.rpc("ajustar_estoque", { p_id: it.prodId, p_qtd: -it.qtd });
         }
       }
     }
