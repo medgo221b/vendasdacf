@@ -562,184 +562,111 @@ function Dashboard() {
   );
 }
 
-// ─── NOVA VENDA ─────────────────────────────────────────────────
+// ─── NOVA VENDA 2.0 (ESTOQUE BLINDADO) ──────────────────────────
 function NovaVenda() {
-  const [prods, setProds]       = useState([]);
-  const [kits, setKits]         = useState([]);
-  const [itens, setItens]       = useState([{ prodId: "", qtd: 1, isKit: false }]);
-  const [comprador, setComprador] = useState("");
-  const [whatsapp, setWhatsapp]   = useState("");
-  const [turma, setTurma]       = useState("");
-  const [data, setData]         = useState(hoje());
-  const [pgto, setPgto]         = useState("Pix");
-  const [msg, setMsg]           = useState(null);
-  const [load, setLoad]         = useState(false);
+  const [prods, setProds] = useState([]);
+  const [itens, setItens] = useState([{ prodId: "", qtd: 1 }]);
+  const [comprador, setComp] = useState("");
+  const [whatsapp, setWhats] = useState("");
+  const [turma, setTurma] = useState("");
+  const [pgto, setPgto] = useState("Pix");
+  const [msg, setMsg] = useState(null);
+  const [load, setLoad] = useState(false);
 
-  useEffect(() => {
-    Promise.all([
-      supabase.from("produtos").select("*").eq("ativo", true),
-      supabase.from("kits").select("*, kit_itens(*)")
-    ]).then(([{ data: p }, { data: k }]) => {
-      setProds(p || []);
-      setKits(k || []);
-    });
+  const carregar = useCallback(async () => {
+    const { data } = await supabase.from("produtos").select("*").eq("ativo", true).order("nome");
+    setProds(data || []);
   }, []);
 
-  const addItem = () => setItens([...itens, { prodId: "", qtd: 1, isKit: false }]);
-  const remItem = (i) => setItens(itens.filter((_, j) => j !== i));
-  const setItem = (i, field, val) => setItens(itens.map((it, j) => j === i ? { ...it, [field]: val } : it));
+  useEffect(() => { carregar(); }, [carregar]);
 
-  const getProd = (id, isKit) => isKit ? kits.find(k => k.id === id) : prods.find(p => p.id === id);
   const total = itens.reduce((s, it) => {
-    const item = getProd(it.prodId, it.isKit);
-    return s + (item ? (item.preco_normal || item.preco_venda) * it.qtd : 0);
+    const p = prods.find(x => x.id === it.prodId);
+    return s + (p ? p.preco_normal * it.qtd : 0);
   }, 0);
 
-  const registrar = async () => {
-    const validos = itens.filter(it => it.prodId);
-    if (!comprador.trim()) return setMsg({ t: "error", v: "Informe o comprador." });
-    if (!validos.length) return setMsg({ t: "error", v: "Adicione itens." });
-
-    // --- VALIDAÇÃO DE ESTOQUE RIGOROSA ---
-    for (const it of validos) {
-      if (it.isKit) {
-        const kit = kits.find(k => k.id === it.prodId);
-        for (const ki of kit.kit_itens) {
-          const p = prods.find(p => p.id === ki.produto_id);
-          if (!p || p.estoque_atual < (ki.quantidade * it.qtd)) {
-            return setMsg({ t: "error", v: `Estoque insuficiente para o item "${p?.nome}" no kit.` });
-          }
-        }
-      } else {
-        const p = prods.find(p => p.id === it.prodId);
-        if (!p || p.estoque_atual < it.qtd) {
-          return setMsg({ t: "error", v: `Estoque insuficiente para "${p?.nome}". Disponível: ${p?.estoque_atual}` });
-        }
-      }
-    }
+  const registrarVenda = async () => {
+    const validos = itens.filter(it => it.prodId && it.qtd > 0);
+    if (!comprador.trim()) return setMsg({ t: "error", v: "Informe o nome do comprador." });
+    if (!validos.length) return setMsg({ t: "error", v: "Selecione pelo menos um produto." });
 
     setLoad(true); setMsg(null);
     let erros = [];
-    const whatsLimpo = whatsapp.replace(/\D/g, "");
 
     for (const it of validos) {
-      if (it.isKit) {
-        // --- LÓGICA DE KIT ---
-        const kit = kits.find(k => k.id === it.prodId);
-        
-        // Primeiro verificamos estoque de todos os itens do kit
-        let estoqueOk = true;
-        for (const ki of kit.kit_itens) {
-          const { data: p } = await supabase.from("produtos").select("estoque_atual").eq("id", ki.produto_id).single();
-          if (!p || p.estoque_atual < (ki.quantidade * it.qtd)) {
-            erros.push(`Estoque insuficiente para item do kit: ${kit.nome}`);
-            estoqueOk = false;
-            break;
-          }
-        }
+      const p = prods.find(x => x.id === it.prodId);
+      
+      // CHAMADA ATÔMICA AO BANCO (RPC)
+      const { data, error } = await supabase.rpc("realizar_venda_v2", {
+        p_produto_id: it.prodId,
+        p_quantidade: it.qtd,
+        p_comprador: comprador.trim(),
+        p_turma: turma.trim(),
+        p_whatsapp: whatsapp.replace(/\D/g, ""),
+        p_pagamento: pgto,
+        p_preco: p.preco_normal
+      });
 
-        if (estoqueOk) {
-          const { error: errVenda } = await supabase.from("vendas").insert({
-            comprador: comprador.trim(), whatsapp: whatsLimpo || null, turma: turma.trim(),
-            data_venda: data, quantidade: it.qtd, forma_pagamento: pgto, status: "Pago e Entregue",
-            produto_nome: `[KIT] ${kit.nome}`, preco_venda: kit.preco_venda
-          });
-
-          if (errVenda) {
-            erros.push(`Erro ao registrar kit: ${errVenda.message}`);
-          } else {
-            for (const ki of kit.kit_itens) {
-              await supabase.rpc("ajustar_estoque", { p_id: ki.produto_id, p_qtd: -(ki.quantidade * it.qtd) });
-            }
-          }
-        }
-      } else {
-        // --- LÓGICA ATÔMICA PARA PRODUTO ---
-        const p = prods.find(p => p.id === it.prodId);
-        console.log("Tentando registrar venda via RPC para:", p.nome);
-        
-        const { data: res, error: errRpc } = await supabase.rpc("registrar_venda_segura", {
-          p_produto_id: it.prodId,
-          p_comprador: comprador.trim(),
-          p_whatsapp: whatsLimpo || null,
-          p_turma: turma.trim(),
-          p_data_venda: data,
-          p_quantidade: it.qtd,
-          p_preco_venda: p.preco_normal,
-          p_forma_pagamento: pgto
-        });
-
-        if (errRpc) {
-          console.error("Erro no RPC Supabase:", errRpc);
-          erros.push(`Erro no banco: ${errRpc.message} (Código: ${errRpc.code}). Verifique se rodou o SQL no painel.`);
-        } else if (res && !res.sucesso) {
-          console.warn("Venda recusada pelo banco:", res.mensagem);
-          erros.push(res.mensagem); 
-        } else if (!res) {
-          console.error("Resposta nula do RPC. A função 'registrar_venda_segura' existe no SQL Editor?");
-          erros.push("Erro interno: A função de segurança não respondeu. Certifique-se de rodar o SQL no Supabase.");
-        } else {
-          console.log("Venda registrada com sucesso no banco!");
-        }
+      if (error) {
+        erros.push(`${p.nome}: ${error.message}`);
+      } else if (!data?.sucesso) {
+        erros.push(`${p.nome}: Erro desconhecido`);
       }
     }
 
-    if (erros.length) setMsg({ t: "error", v: erros.join(" | ") });
-    else {
-      setMsg({ t: "success", v: "Venda registrada com sucesso!" });
-      setItens([{ prodId: "", qtd: 1, isKit: false }]);
-      setComprador(""); setWhatsapp(""); setTurma("");
-      
-      // REFRESH LOCAL DATA
-      const [{ data: p }, { data: k }] = await Promise.all([
-        supabase.from("produtos").select("*").eq("ativo", true),
-        supabase.from("kits").select("*, kit_itens(*)")
-      ]);
-      setProds(p || []);
-      setKits(k || []);
+    if (erros.length) {
+      setMsg({ t: "error", v: erros.join(" | ") });
+    } else {
+      setMsg({ t: "success", v: "Venda(s) realizada(s) com sucesso!" });
+      setItens([{ prodId: "", qtd: 1 }]);
+      setComp(""); setWhats(""); setTurma("");
     }
+    
+    carregar(); // Recarrega estoque real
     setLoad(false);
-  };
   };
 
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto" }}>
-      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>🆕 Nova Venda</h1>
+    <div style={{ maxWidth: 600, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>🆕 Venda Direta</h1>
+      
       <Card style={{ marginBottom: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div style={{ gridColumn: "1/-1" }}><Input label="Comprador *" value={comprador} onChange={e => setComprador(e.target.value)} /></div>
-          <Input label="WhatsApp (Opcional)" value={whatsapp} onChange={e => setWhatsapp(e.target.value)} placeholder="DD9XXXXXXXX" />
-          <Input label="Turma" value={turma} onChange={e => setTurma(e.target.value)} placeholder="Ex: T9" />
-          <Input label="Data *" type="date" value={data} onChange={e => setData(e.target.value)} />
-          <Select label="Pagamento" value={pgto} onChange={e => setPgto(e.target.value)} style={{ gridColumn: "1/-1" }}>
-            {["Pix","Dinheiro","Cartão","Transferência"].map(o => <option key={o}>{o}</option>)}
+        <div style={{ display: "grid", gap: 12 }}>
+          <Input label="Comprador" value={comprador} onChange={e => setComp(e.target.value)} placeholder="Nome do aluno" />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Input label="Turma" value={turma} onChange={e => setTurma(e.target.value)} placeholder="T9A" />
+            <Input label="WhatsApp" value={whatsapp} onChange={e => setWhats(e.target.value)} placeholder="129..." />
+          </div>
+          <Select label="Forma de Pagamento" value={pgto} onChange={e => setPgto(e.target.value)}>
+            {["Pix", "Dinheiro", "Cartão"].map(o => <option key={o}>{o}</option>)}
           </Select>
         </div>
       </Card>
+
       <Card style={{ marginBottom: 16 }}>
-        <h3 style={{ fontSize: 14, color: C.muted, textTransform: 'uppercase', marginBottom: 16 }}>Itens da Venda</h3>
+        <h3 style={{ fontSize: 12, color: C.muted, textTransform: "uppercase", marginBottom: 12 }}>Produtos</h3>
         {itens.map((it, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr 80px 36px", gap: 8, marginBottom: 12, alignItems: "end" }}>
-            <Select label={i === 0 ? "Tipo" : ""} value={it.isKit ? "kit" : "prod"} onChange={e => setItem(i, "isKit", e.target.value === "kit")}>
-              <option value="prod">Produto</option>
-              <option value="kit">Combo/Kit</option>
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 40px", gap: 10, marginBottom: 10, alignItems: "end" }}>
+            <Select value={it.prodId} onChange={e => setItens(itens.map((x, j) => j === i ? { ...x, prodId: e.target.value } : x))}>
+              <option value="">Selecione...</option>
+              {prods.map(p => <option key={p.id} value={p.id}>{p.nome} (Estoque: {p.estoque_atual})</option>)}
             </Select>
-            <Select label={i === 0 ? "Item" : ""} value={it.prodId} onChange={e => setItem(i, "prodId", e.target.value)}>
-              <option value="">Selecionar...</option>
-              {it.isKit ? kits.map(k => <option key={k.id} value={k.id}>{k.nome}</option>) : prods.map(p => <option key={p.id} value={p.id}>{p.nome} ({p.estoque_atual} un.)</option>)}
-            </Select>
-            <Input label={i === 0 ? "Qtd" : ""} type="number" value={it.qtd} onChange={e => setItem(i, "qtd", parseInt(e.target.value) || 1)} />
-            <button onClick={() => remItem(i)} style={{ background: "#C0392B22", border: `1px solid ${C.red}44`, borderRadius: 8, color: C.red, height: 38 }}>×</button>
+            <Input type="number" value={it.qtd} onChange={e => setItens(itens.map((x, j) => j === i ? { ...x, qtd: parseInt(e.target.value) || 0 } : x))} />
+            <button onClick={() => setItens(itens.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: C.red, fontSize: 20 }}>×</button>
           </div>
         ))}
-        <Btn variant="ghost" onClick={addItem} style={{ width: "100%", marginBottom: 16 }}>+ Adicionar item</Btn>
-        <div style={{ background: C.blue + "33", borderRadius: 12, padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Total</span>
-          <span style={{ fontSize: 22, fontWeight: 800, color: C.teal }}>{fmtR(total)}</span>
-        </div>
+        <Btn variant="ghost" onClick={() => setItens([...itens, { prodId: "", qtd: 1 }])} style={{ width: "100%", fontSize: 12 }}>+ Adicionar Produto</Btn>
       </Card>
+
+      <div style={{ marginBottom: 20, textAlign: "right" }}>
+        <p style={{ color: C.muted, fontSize: 14 }}>Total da Venda</p>
+        <p style={{ fontSize: 28, fontWeight: 800, color: C.teal }}>{fmtR(total)}</p>
+      </div>
+
       <Alert msg={msg?.v} type={msg?.t} onClose={() => setMsg(null)} />
-      <Btn variant="success" onClick={registrar} disabled={load} style={{ width: "100%", padding: 14 }}>{load ? "Registrando..." : "Finalizar Venda"}</Btn>
+      <Btn variant="success" onClick={registrarVenda} disabled={load} style={{ width: "100%", padding: 16, fontSize: 16 }}>
+        {load ? "Processando..." : "Confirmar Venda"}
+      </Btn>
     </div>
   );
 }
