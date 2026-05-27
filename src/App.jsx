@@ -238,14 +238,18 @@ const MENU_ESTRUTURA = [
   { id: "financeiro", label: "Financeiro", icon: "💸" },
 ];
 
-function Sidebar({ tab, setTab, onLogout, user }) {
+function Sidebar({ tab, setTab, onLogout }) {
   const [alertas, setAlertas] = useState(0);
   const [abertos, setAbus] = useState(["grupo_vendas", "grupo_produtos"]);
 
-  useEffect(() => {
+  const carregarAlertas = useCallback(() => {
     supabase.from("produtos").select("id").eq("ativo", true).lte("estoque_atual", 5)
       .then(({ data }) => setAlertas(data?.length || 0));
-  }, [tab]);
+  }, []);
+
+  useEffect(() => {
+    carregarAlertas();
+  }, [tab, carregarAlertas]);
 
   const toggleGrupo = (id) => setAbus(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
@@ -382,24 +386,23 @@ function Dashboard() {
     });
     const rankingTurmas = Object.values(tMap).sort((a, b) => b.total - a.total).slice(0, 5);
 
-    let totalEntradasHoje = 0;
-    let totalSaidasHoje = 0;
+    let entHoje, saiHoje;
     if (filtroData === "hoje") {
-      totalEntradasHoje = totalEntradas;
-      totalSaidasHoje = totalSaidas;
+      entHoje = totalEntradas;
+      saiHoje = totalSaidas;
     } else {
       const [{ data: vh }, { data: mh }] = await Promise.all([
         supabase.from("vendas").select("preco_venda, quantidade").eq("status", "Pago e Entregue").eq("data_venda", dHoje),
         supabase.from("movimentacoes_financeiras").select("valor").eq("tipo", "saida").gte("created_at", dHoje)
       ]);
-      totalEntradasHoje = (vh || []).reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
-      totalSaidasHoje = (mh || []).reduce((s, r) => s + r.valor, 0);
+      entHoje = (vh || []).reduce((s, r) => s + r.preco_venda * r.quantidade, 0);
+      saiHoje = (mh || []).reduce((s, r) => s + r.valor, 0);
     }
 
     setStats({ 
       totalEntradas, totalSaidas, lucroLiquidoReal, 
-      faturamentoHoje: totalEntradasHoje,
-      saldoHoje: totalEntradasHoje - totalSaidasHoje,
+      faturamentoHoje: entHoje,
+      saldoHoje: entHoje - saiHoje,
       totalPedidos: vs.length,
       margemGeral: totalEntradas > 0 ? (lucroLiquidoReal / totalEntradas * 100).toFixed(1) : 0 
     });
@@ -440,20 +443,19 @@ function Dashboard() {
         </div>
       </div>
 
-      <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+      <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
         <StatCard label="Faturamento Hoje" value={fmtR(stats?.faturamentoHoje)} icon="🚀" color={C.teal} sub="Total bruto vendido hoje" />
         <StatCard label="Saldo de Caixa Hoje" value={fmtR(stats?.saldoHoje)} icon="👛" color={stats?.saldoHoje >= 0 ? C.green : C.red} sub="Entrou - Saiu hoje" />
         <StatCard label="Faturamento Período" value={fmtR(stats?.totalEntradas)} icon="💰" color={C.green} />
         <StatCard label="Lucro Líquido Real" value={fmtR(stats?.lucroLiquidoReal)} icon="📈" color={stats?.lucroLiquidoReal >= 0 ? C.green : C.red} sub="Período selecionado" />
       </div>
       
-      <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
-        <StatCard label="Itens Vendidos" value={stats?.totalItens} icon="📦" color={C.muted} />
+      <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 24 }}>
         <StatCard label="Nº de Vendas" value={stats?.totalPedidos} icon="🧾" color={C.muted} />
-        <StatCard label="Ticket Médio" icon="🎯" color={C.muted} value={stats?.totalPedidos > 0 ? fmtR(stats?.totalGeral / stats?.totalPedidos) : "—"} />
+        <StatCard label="Ticket Médio" icon="🎯" color={C.muted} value={stats?.totalPedidos > 0 ? fmtR(stats?.totalEntradas / stats?.totalPedidos) : "—"} />
       </div>
 
-      <div className="chart-grid" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginBottom: 24 }}>
+      <div className="chart-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 24 }}>
         <Card>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20, fontSize: 15 }}>Fluxo de Caixa Diário</h3>
           {vendas.length > 0 ? (
@@ -936,19 +938,16 @@ function Produtos() {
 function Kits() {
   const [kits, setKits]     = useState([]);
   const [prods, setProds]   = useState([]);
-  const [loading, setLoading] = useState(true);
   const [showAdd, setShow]  = useState(false);
   const [form, setForm]     = useState({ nome: "", preco: "", itens: [{ prodId: "", qtd: 1 }] });
 
   const carregar = useCallback(async () => {
-    setLoading(true);
     const [{ data: k }, { data: p }] = await Promise.all([
       supabase.from("kits").select("*, kit_itens(id, produto_id, quantidade, produtos(nome))"),
       supabase.from("produtos").select("*").eq("ativo", true)
     ]);
     setKits(k || []);
     setProds(p || []);
-    setLoading(false);
   }, []);
 
   useEffect(() => { carregar(); }, [carregar]);
@@ -1059,9 +1058,9 @@ function Kits() {
 function Historico() {
   const [vendas, setVendas] = useState([]);
   const [filtro, setFiltro] = useState("");
-  const [loading, setLoading] = useState(true);
   const [editando, setEditando] = useState(null);
   const [prods, setProds] = useState([]);
+  const [kits, setKits] = useState([]);
   const [loadSave, setLoadSave] = useState(false);
 
   // Filtros de Data
@@ -1070,7 +1069,6 @@ function Historico() {
   const [dataAte, setDataAte]       = useState("");
 
   const carregar = useCallback(async () => {
-    setLoading(true);
     let query = supabase.from("vendas").select("*");
     
     if (filtroData === "hoje") {
@@ -1084,9 +1082,12 @@ function Historico() {
       if (dataAte) query = query.lte("data_venda", dataAte);
     }
 
-    const { data: v } = await query.order("data_venda", { ascending: false }).order("created_at", { ascending: false }).limit(500);
-    const { data: p } = await supabase.from("produtos").select("*").eq("ativo", true);
-    setVendas(v || []); setProds(p || []); setLoading(false);
+    const [{ data: v }, { data: p }, { data: k }] = await Promise.all([
+      query.order("data_venda", { ascending: false }).order("created_at", { ascending: false }).limit(500),
+      supabase.from("produtos").select("*").eq("ativo", true),
+      supabase.from("kits").select("*, kit_itens(*)")
+    ]);
+    setVendas(v || []); setProds(p || []); setKits(k || []);
   }, [filtroData, dataDe, dataAte]);
 
   useEffect(() => {
@@ -1097,6 +1098,20 @@ function Historico() {
 
   const filtradas = vendas.filter(v => !filtro || v.comprador.toLowerCase().includes(filtro.toLowerCase()) || v.produto_nome.toLowerCase().includes(filtro.toLowerCase()));
   const STATUS_COLOR = { "Pago e Entregue": C.green, "Pendente": C.gold, "Pago Aguardando": C.teal, "Reembolsado": C.red };
+
+  const devolverEstoque = async (v) => {
+    if (v.produto_nome.startsWith("[KIT]")) {
+      const kitNome = v.produto_nome.replace("[KIT] ", "");
+      const kit = kits.find(k => k.nome === kitNome);
+      if (kit) {
+        for (const ki of kit.kit_itens) {
+          await supabase.rpc("ajustar_estoque", { p_id: ki.produto_id, p_qtd: (ki.quantidade * v.quantidade) });
+        }
+      }
+    } else if (v.produto_id) {
+      await supabase.rpc("ajustar_estoque", { p_id: v.produto_id, p_qtd: v.quantidade });
+    }
+  };
 
   const exportarExcel = () => {
     // 1. Dados da Planilha de Vendas
@@ -1160,18 +1175,54 @@ function Historico() {
   const salvarEdicao = async (e) => {
     e.preventDefault(); setLoadSave(true);
     const vAntiga = vendas.find(v => v.id === editando.id);
-    await supabase.rpc("ajustar_estoque", { p_id: vAntiga.produto_id, p_qtd: vAntiga.quantidade });
+    
+    // Bloquear alteração de produto se for Kit
+    if (vAntiga.produto_nome.startsWith("[KIT]") && vAntiga.produto_id !== editando.produto_id) {
+      alert("Para alterar o produto de um Kit, exclua a venda e faça uma nova.");
+      setLoadSave(false); return;
+    }
+
+    await devolverEstoque(vAntiga);
+    
     const prodNovo = prods.find(p => p.id === editando.produto_id);
-    const { data: resEstoque } = await supabase.rpc("ajustar_estoque", { p_id: editando.produto_id, p_qtd: -editando.quantidade });
-    if (resEstoque?.error) { alert("Erro de estoque: " + resEstoque.error); setLoadSave(false); return; }
+    
+    // Atualizar estoque do novo produto (se não for kit)
+    if (!vAntiga.produto_nome.startsWith("[KIT]")) {
+      await supabase.rpc("ajustar_estoque", { p_id: editando.produto_id, p_qtd: -editando.quantidade });
+    } else {
+      // Se for kit e mudou a quantidade, re-descontar
+      const kitNome = vAntiga.produto_nome.replace("[KIT] ", "");
+      const kit = kits.find(k => k.nome === kitNome);
+      for (const ki of kit.kit_itens) {
+        await supabase.rpc("ajustar_estoque", { p_id: ki.produto_id, p_qtd: -(ki.quantidade * editando.quantidade) });
+      }
+    }
+
     const { error } = await supabase.from("vendas").update({
-      produto_id: editando.produto_id, produto_nome: prodNovo.nome, comprador: editando.comprador,
-      turma: editando.turma, quantidade: editando.quantidade, preco_venda: prodNovo.preco_normal,
-      forma_pagamento: editando.forma_pagamento, status: editando.status, data_venda: editando.data_venda
+      produto_id: editando.produto_id, 
+      produto_nome: vAntiga.produto_nome.startsWith("[KIT]") ? vAntiga.produto_nome : prodNovo.nome, 
+      comprador: editando.comprador,
+      turma: editando.turma, 
+      quantidade: editando.quantidade, 
+      preco_venda: vAntiga.produto_nome.startsWith("[KIT]") ? vAntiga.preco_venda : prodNovo.preco_normal,
+      forma_pagamento: editando.forma_pagamento, 
+      status: editando.status, 
+      data_venda: editando.data_venda
     }).eq("id", editando.id);
+
     if (error) alert("Erro ao salvar: " + error.message);
     else { setEditando(null); carregar(); }
     setLoadSave(false);
+  };
+
+  const excluirVenda = async (v) => {
+    if (confirm(`Excluir venda de ${v.comprador}?`)) {
+      setLoadSave(true);
+      await devolverEstoque(v);
+      await supabase.from("vendas").delete().eq("id", v.id);
+      carregar();
+      setLoadSave(false);
+    }
   };
 
   return (
@@ -1241,7 +1292,7 @@ function Historico() {
                       }} style={{ background: "none", border: "none", fontSize: 16 }} title="Confirmar Pagamento WhatsApp">✅</button>
                       
                       <button onClick={() => setEditando({ ...v })} style={{ background: "none", border: "none", fontSize: 16 }}>✏️</button>
-                      <button onClick={async () => { if (confirm(`Excluir?`)) { await supabase.rpc("ajustar_estoque", { p_id: v.produto_id, p_qtd: v.quantidade }); await supabase.from("vendas").delete().eq("id", v.id); carregar(); } }} style={{ background: "none", border: "none", fontSize: 16 }}>🗑️</button>
+                      <button onClick={() => excluirVenda(v)} disabled={loadSave} style={{ background: "none", border: "none", fontSize: 16 }}>🗑️</button>
                     </div>
                   </td>
                 </tr>
@@ -1283,8 +1334,6 @@ function Financeiro() {
   const [caixas, setCaixas]     = useState([]);
   const [movimentos, setMovs]   = useState([]);
   const [vendasHoje, setVendas] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [load, setLoad]         = useState(false);
   
   const [showFechar, setShow] = useState(false);
   const [showGasto, setShowGasto] = useState(false);
@@ -1293,7 +1342,6 @@ function Financeiro() {
   const [gasto, setGasto]     = useState({ valor: "", descricao: "", tipo: "saida", status: "Pago", id: null });
 
   const carregar = useCallback(async () => {
-    setLoading(true);
     const dHoje = hoje();
     const [{ data: c }, { data: m }, { data: v }] = await Promise.all([
       supabase.from("caixas").select("*").order("data_fechamento", { ascending: false }).limit(30),
@@ -1301,7 +1349,6 @@ function Financeiro() {
       supabase.from("vendas").select("*").eq("data_venda", dHoje).eq("status", "Pago e Entregue")
     ]);
     setCaixas(c || []); setMovs(m || []); setVendas(v || []);
-    setLoading(false);
   }, []);
 
   useEffect(() => { carregar(); }, [carregar]);
@@ -1313,7 +1360,6 @@ function Financeiro() {
 
   const fecharCaixa = async (e) => {
     e.preventDefault();
-    setLoad(true);
     const dataAlvo = conferido.data_fechamento || hoje();
     
     const payload = {
@@ -1346,7 +1392,6 @@ function Financeiro() {
       setConf({ dinheiro: "", pix: "", observacao: "", id: null });
       carregar();
     }
-    setLoad(false);
   };
 
   const salvarGasto = async (e) => {
@@ -1505,7 +1550,7 @@ export default function App() {
   return (
     <>
       <style>{globalCss}</style>
-      <Sidebar tab={tab} setTab={setTab} onLogout={logout} user={session.user} />
+      <Sidebar tab={tab} setTab={setTab} onLogout={logout} />
       <main style={{ marginLeft: 220, padding: 32, minHeight: "100vh" }}>
         <Page />
       </main>
