@@ -562,10 +562,11 @@ function Dashboard() {
   );
 }
 
-// ─── NOVA VENDA 2.0 (ESTOQUE BLINDADO) ──────────────────────────
+// ─── NOVA VENDA 2.0 (ESTOQUE BLINDADO COM KITS) ──────────────────
 function NovaVenda() {
   const [prods, setProds] = useState([]);
-  const [itens, setItens] = useState([{ prodId: "", qtd: 1 }]);
+  const [kits, setKits] = useState([]);
+  const [itens, setItens] = useState([{ id: "", qtd: 1, tipo: "prod" }]); // tipo: "prod" ou "kit"
   const [comprador, setComp] = useState("");
   const [whatsapp, setWhats] = useState("");
   const [turma, setTurma] = useState("");
@@ -574,43 +575,58 @@ function NovaVenda() {
   const [load, setLoad] = useState(false);
 
   const carregar = useCallback(async () => {
-    const { data } = await supabase.from("produtos").select("*").eq("ativo", true).order("nome");
-    setProds(data || []);
+    const [{ data: p }, { data: k }] = await Promise.all([
+      supabase.from("produtos").select("*").eq("ativo", true).order("nome"),
+      supabase.from("kits").select("*").order("nome")
+    ]);
+    setProds(p || []);
+    setKits(k || []);
   }, []);
 
   useEffect(() => { carregar(); }, [carregar]);
 
   const total = itens.reduce((s, it) => {
-    const p = prods.find(x => x.id === it.prodId);
-    return s + (p ? p.preco_normal * it.qtd : 0);
+    if (it.tipo === "prod") {
+      const p = prods.find(x => x.id === it.id);
+      return s + (p ? p.preco_normal * it.qtd : 0);
+    } else {
+      const k = kits.find(x => x.id === it.id);
+      return s + (k ? k.preco_venda * it.qtd : 0);
+    }
   }, 0);
 
   const registrarVenda = async () => {
-    const validos = itens.filter(it => it.prodId && it.qtd > 0);
+    const validos = itens.filter(it => it.id && it.qtd > 0);
     if (!comprador.trim()) return setMsg({ t: "error", v: "Informe o nome do comprador." });
-    if (!validos.length) return setMsg({ t: "error", v: "Selecione pelo menos um produto." });
+    if (!validos.length) return setMsg({ t: "error", v: "Selecione pelo menos um item." });
 
     setLoad(true); setMsg(null);
     let erros = [];
 
     for (const it of validos) {
-      const p = prods.find(x => x.id === it.prodId);
-      
-      // CHAMADA ATÔMICA AO BANCO (RPC)
-      const { data, error } = await supabase.rpc("realizar_venda_v2", {
-        p_produto_id: it.prodId,
-        p_quantidade: it.qtd,
-        p_comprador: comprador.trim(),
-        p_turma: turma.trim(),
-        p_whatsapp: whatsapp.replace(/\D/g, ""),
-        p_pagamento: pgto,
-        p_preco: p.preco_normal
-      });
-
-      if (error) {
-        erros.push(`${p.nome}: ${error.message}`);
-      } else if (!data?.sucesso) {
-        erros.push(`${p.nome}: Erro desconhecido`);
+      if (it.tipo === "prod") {
+        const p = prods.find(x => x.id === it.id);
+        const { data, error } = await supabase.rpc("realizar_venda_v2", {
+          p_produto_id: it.id,
+          p_quantidade: it.qtd,
+          p_comprador: comprador.trim(),
+          p_turma: turma.trim(),
+          p_whatsapp: whatsapp.replace(/\D/g, ""),
+          p_pagamento: pgto,
+          p_preco: p.preco_normal
+        });
+        if (error) erros.push(`${p.nome}: ${error.message}`);
+      } else {
+        const k = kits.find(x => x.id === it.id);
+        const { data, error } = await supabase.rpc("realizar_venda_kit_v2", {
+          p_kit_id: it.id,
+          p_quantidade: it.qtd,
+          p_comprador: comprador.trim(),
+          p_turma: turma.trim(),
+          p_whatsapp: whatsapp.replace(/\D/g, ""),
+          p_pagamento: pgto
+        });
+        if (error) erros.push(`Kit ${k.nome}: ${error.message}`);
       }
     }
 
@@ -618,7 +634,7 @@ function NovaVenda() {
       setMsg({ t: "error", v: erros.join(" | ") });
     } else {
       setMsg({ t: "success", v: "Venda(s) realizada(s) com sucesso!" });
-      setItens([{ prodId: "", qtd: 1 }]);
+      setItens([{ id: "", qtd: 1, tipo: "prod" }]);
       setComp(""); setWhats(""); setTurma("");
     }
     
@@ -627,14 +643,14 @@ function NovaVenda() {
   };
 
   return (
-    <div style={{ maxWidth: 600, margin: "0 auto" }}>
-      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>🆕 Venda Direta</h1>
+    <div style={{ maxWidth: 650, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>🆕 Registrar Venda</h1>
       
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "grid", gap: 12 }}>
-          <Input label="Comprador" value={comprador} onChange={e => setComp(e.target.value)} placeholder="Nome do aluno" />
+          <Input label="Comprador *" value={comprador} onChange={e => setComp(e.target.value)} placeholder="Nome completo" />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Input label="Turma" value={turma} onChange={e => setTurma(e.target.value)} placeholder="T9A" />
+            <Input label="Turma" value={turma} onChange={e => setTurma(e.target.value)} placeholder="T9A / T12" />
             <Input label="WhatsApp" value={whatsapp} onChange={e => setWhats(e.target.value)} placeholder="129..." />
           </div>
           <Select label="Forma de Pagamento" value={pgto} onChange={e => setPgto(e.target.value)}>
@@ -644,28 +660,35 @@ function NovaVenda() {
       </Card>
 
       <Card style={{ marginBottom: 16 }}>
-        <h3 style={{ fontSize: 12, color: C.muted, textTransform: "uppercase", marginBottom: 12 }}>Produtos</h3>
+        <h3 style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", marginBottom: 12, letterSpacing: 1 }}>Itens do Pedido</h3>
         {itens.map((it, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 40px", gap: 10, marginBottom: 10, alignItems: "end" }}>
-            <Select value={it.prodId} onChange={e => setItens(itens.map((x, j) => j === i ? { ...x, prodId: e.target.value } : x))}>
-              <option value="">Selecione...</option>
-              {prods.map(p => <option key={p.id} value={p.id}>{p.nome} (Estoque: {p.estoque_atual})</option>)}
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "100px 1fr 70px 30px", gap: 10, marginBottom: 12, alignItems: "end" }}>
+            <Select label={i===0?"Tipo":""} value={it.tipo} onChange={e => setItens(itens.map((x, j) => j === i ? { ...x, tipo: e.target.value, id: "" } : x))}>
+              <option value="prod">Produto</option>
+              <option value="kit">Combo/Kit</option>
             </Select>
-            <Input type="number" value={it.qtd} onChange={e => setItens(itens.map((x, j) => j === i ? { ...x, qtd: parseInt(e.target.value) || 0 } : x))} />
-            <button onClick={() => setItens(itens.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: C.red, fontSize: 20 }}>×</button>
+            <Select label={i===0?"Item":""} value={it.id} onChange={e => setItens(itens.map((x, j) => j === i ? { ...x, id: e.target.value } : x))}>
+              <option value="">Selecione...</option>
+              {it.tipo === "prod" 
+                ? prods.map(p => <option key={p.id} value={p.id}>{p.nome} (Est: {p.estoque_atual})</option>)
+                : kits.map(k => <option key={k.id} value={k.id}>{k.nome} - {fmtR(k.preco_venda)}</option>)
+              }
+            </Select>
+            <Input label={i===0?"Qtd":""} type="number" value={it.qtd} onChange={e => setItens(itens.map((x, j) => j === i ? { ...x, qtd: parseInt(e.target.value) || 0 } : x))} />
+            <button onClick={() => setItens(itens.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: C.red, fontSize: 18, paddingBottom: 8 }}>×</button>
           </div>
         ))}
-        <Btn variant="ghost" onClick={() => setItens([...itens, { prodId: "", qtd: 1 }])} style={{ width: "100%", fontSize: 12 }}>+ Adicionar Produto</Btn>
+        <Btn variant="ghost" onClick={() => setItens([...itens, { id: "", qtd: 1, tipo: "prod" }])} style={{ width: "100%", fontSize: 12, marginTop: 4 }}>+ Adicionar outro item</Btn>
       </Card>
 
-      <div style={{ marginBottom: 20, textAlign: "right" }}>
-        <p style={{ color: C.muted, fontSize: 14 }}>Total da Venda</p>
-        <p style={{ fontSize: 28, fontWeight: 800, color: C.teal }}>{fmtR(total)}</p>
+      <div style={{ marginBottom: 20, textAlign: "right", background: C.card, padding: 16, borderRadius: 12, border: `1px solid ${C.border}` }}>
+        <p style={{ color: C.muted, fontSize: 12, textTransform: "uppercase" }}>Total a Pagar</p>
+        <p style={{ fontSize: 32, fontWeight: 800, color: C.teal, fontFamily: "Syne" }}>{fmtR(total)}</p>
       </div>
 
       <Alert msg={msg?.v} type={msg?.t} onClose={() => setMsg(null)} />
-      <Btn variant="success" onClick={registrarVenda} disabled={load} style={{ width: "100%", padding: 16, fontSize: 16 }}>
-        {load ? "Processando..." : "Confirmar Venda"}
+      <Btn variant="success" onClick={registrarVenda} disabled={load} style={{ width: "100%", padding: 16, fontSize: 16, borderRadius: 12 }}>
+        {load ? "Processando transação..." : "🚀 Confirmar e Finalizar"}
       </Btn>
     </div>
   );
