@@ -380,9 +380,14 @@ function Dashboard() {
     
     const tMap = {};
     vs.forEach(r => {
-      const t = r.turma || "Não informada";
-      if (!tMap[t]) tMap[t] = { nome: t, total: 0 };
-      tMap[t].total += r.preco_venda * r.quantidade;
+      // Normalização: T9-A, t9a, T9 A -> T9A
+      const raw = r.turma || "Não informada";
+      const normalized = raw.trim().toUpperCase().replace(/[\s-]/g, ""); 
+      
+      if (!tMap[normalized]) {
+        tMap[normalized] = { nome: normalized, total: 0 };
+      }
+      tMap[normalized].total += r.preco_venda * r.quantidade;
     });
     const rankingTurmas = Object.values(tMap).sort((a, b) => b.total - a.total).slice(0, 5);
 
