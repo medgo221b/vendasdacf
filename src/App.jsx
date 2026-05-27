@@ -619,6 +619,33 @@ function NovaVenda() {
     }
 
     setLoad(true); setMsg(null);
+
+    // --- RE-VALIDAÇÃO DE ESTOQUE EM TEMPO REAL (ANTI-STALE) ---
+    const { data: freshProds } = await supabase.from("produtos").select("id, nome, estoque_atual").in("id", validos.filter(it => !it.isKit).map(it => it.prodId));
+    
+    for (const it of validos) {
+      if (it.isKit) {
+        // Para kits, buscamos os itens do kit novamente
+        const kit = kits.find(k => k.id === it.prodId);
+        const prodIdsNoKit = kit.kit_itens.map(ki => ki.produto_id);
+        const { data: freshKitProds } = await supabase.from("produtos").select("id, nome, estoque_atual").in("id", prodIdsNoKit);
+        
+        for (const ki of kit.kit_itens) {
+          const fp = freshKitProds?.find(p => p.id === ki.produto_id);
+          if (!fp || fp.estoque_atual < (ki.quantidade * it.qtd)) {
+            setLoad(false);
+            return setMsg({ t: "error", v: `Estoque real insuficiente para "${fp?.nome}" no kit.` });
+          }
+        }
+      } else {
+        const fp = freshProds?.find(p => p.id === it.prodId);
+        if (!fp || fp.estoque_atual < it.qtd) {
+          setLoad(false);
+          return setMsg({ t: "error", v: `Estoque real insuficiente para "${fp?.nome}". Disponível: ${fp?.estoque_atual || 0}` });
+        }
+      }
+    }
+
     let erros = [];
     const whatsLimpo = whatsapp.replace(/\D/g, "");
 
@@ -670,6 +697,14 @@ function NovaVenda() {
       setMsg({ t: "success", v: "Venda registrada!" });
       setItens([{ prodId: "", qtd: 1, isKit: false }]);
       setComprador(""); setWhatsapp(""); setTurma("");
+      
+      // REFRESH LOCAL DATA
+      const [{ data: p }, { data: k }] = await Promise.all([
+        supabase.from("produtos").select("*").eq("ativo", true),
+        supabase.from("kits").select("*, kit_itens(*)")
+      ]);
+      setProds(p || []);
+      setKits(k || []);
     }
     setLoad(false);
   };
