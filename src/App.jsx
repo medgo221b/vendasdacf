@@ -420,8 +420,6 @@ function Dashboard() {
 
   if (loading && !stats) return <div style={{ color: C.muted, padding: 40 }}>Carregando...</div>;
 
-  const prodsCriticos = prods.filter(p => p.ativo && p.estoque_atual <= 5);
-
   return (
     <div>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", marginBottom: 24, gap: 16 }}>
@@ -441,19 +439,6 @@ function Dashboard() {
           <Btn variant="ghost" onClick={carregar} style={{ height: 40 }}>🔄</Btn>
         </div>
       </div>
-
-      {prodsCriticos.length > 0 && (
-        <Card style={{ background: C.red + '11', borderColor: C.red + '33', marginBottom: 24 }}>
-          <h4 style={{ color: C.red, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            ⚠️ ATENÇÃO: Produtos com estoque crítico
-          </h4>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {prodsCriticos.map(p => (
-              <Badge key={p.id} color={C.red}>{p.nome}: {p.estoque_atual} un.</Badge>
-            ))}
-          </div>
-        </Card>
-      )}
 
       <div className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
         <StatCard label="Faturamento Hoje" value={fmtR(stats?.faturamentoHoje)} icon="🚀" color={C.teal} sub="Total bruto vendido hoje" />
