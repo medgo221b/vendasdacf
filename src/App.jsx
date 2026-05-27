@@ -1199,11 +1199,11 @@ function Historico() {
   };
 
   const excluirVenda = async (v) => {
-    if (confirm(`Excluir venda de ${v.comprador}?`)) {
+    if (confirm(`Excluir esta venda e devolver o estoque para ${v.comprador}?`)) {
       setLoadSave(true);
-      await devolverEstoque(v);
-      await supabase.from("vendas").delete().eq("id", v.id);
-      carregar();
+      const { error } = await supabase.rpc("excluir_venda_e_devolver_estoque", { p_venda_id: v.id });
+      if (error) alert("Erro ao excluir: " + error.message);
+      else carregar();
       setLoadSave(false);
     }
   };
