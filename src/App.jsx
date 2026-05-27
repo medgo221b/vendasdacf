@@ -420,7 +420,7 @@ function Dashboard() {
 
   if (loading && !stats) return <div style={{ color: C.muted, padding: 40 }}>Carregando...</div>;
 
-  const prodsCriticos = prods.filter(p => p.estoque_atual <= 5);
+  const prodsCriticos = prods.filter(p => p.ativo && p.estoque_atual <= 5);
 
   return (
     <div>
@@ -601,6 +601,8 @@ function NovaVenda() {
   const total = itens.reduce((s, it) => {
     const item = getProd(it.prodId, it.isKit);
     return s + (item ? (item.preco_normal || item.preco_venda) * it.qtd : 0);
+  }, 0);
+
   const registrar = async () => {
     const validos = itens.filter(it => it.prodId);
     if (!comprador.trim()) return setMsg({ t: "error", v: "Informe o comprador." });
@@ -629,9 +631,7 @@ function NovaVenda() {
     const whatsLimpo = whatsapp.replace(/\D/g, "");
 
     for (const it of validos) {
-  ...
-    setLoad(false);
-  };
+      const payload = {
         comprador: comprador.trim(),
         whatsapp: whatsLimpo || null,
         turma: turma.trim(),
@@ -725,10 +725,11 @@ function NovaVenda() {
 // ─── PRODUTOS ───────────────────────────────────────────────────
 function Produtos() {
   const [prods, setProds]   = useState([]);
-  const [form, setForm]     = useState({ nome: "", estoque_inicial: 0, preco_normal: "", preco_da: "", preco_custo: "" });
+  const [form, setForm]     = useState({ nome: "", estoque_inicial: 0, preco_normal: "", preco_da: "", preco_custo: "", ativo: true });
+  const [stockForm, setStockForm] = useState({ id: null, nome: "", atual: 0, ajuste: 0 });
   const [msg, setMsg]       = useState(null);
   const [load, setLoad]     = useState(false);
-  const [editId, setEditId] = useState(null);
+  const [modal, setModal]   = useState(null); // 'form', 'stock'
 
   const carregar = async () => {
     const { data } = await supabase.from("dashboard_produtos").select("*").order("nome");
@@ -741,93 +742,205 @@ function Produtos() {
     return () => supabase.removeChannel(ch);
   }, []);
 
-  const salvar = async () => {
+  const salvar = async (e) => {
+    e.preventDefault();
     if (!form.nome.trim()) return setMsg({ t: "error", v: "Informe o nome." });
     if (!Number(form.preco_normal)) return setMsg({ t: "error", v: "Informe o preço de venda." });
+    
     setLoad(true); setMsg(null);
     const payload = {
-      nome: form.nome.trim(), estoque_inicial: Number(form.estoque_inicial) || 0,
-      estoque_atual: Number(form.estoque_inicial) || 0, // Agora atualiza o estoque atual também
-      preco_normal: Number(form.preco_normal) || 0, preco_da: Number(form.preco_da) || 0,
+      nome: form.nome.trim(), 
+      preco_normal: Number(form.preco_normal) || 0, 
+      preco_da: Number(form.preco_da) || 0,
       preco_custo: Number(form.preco_custo) || 0,
+      ativo: form.ativo
     };
-    const { error } = editId ? await supabase.from("produtos").update(payload).eq("id", editId) : await supabase.from("produtos").insert(payload);
+
+    let error;
+    if (form.id) {
+      const { error: err } = await supabase.from("produtos").update(payload).eq("id", form.id);
+      error = err;
+    } else {
+      const { error: err } = await supabase.from("produtos").insert({
+        ...payload,
+        estoque_inicial: Number(form.estoque_inicial) || 0,
+        estoque_atual: Number(form.estoque_inicial) || 0
+      });
+      error = err;
+    }
+
     if (error) setMsg({ t: "error", v: error.message.includes("unique") ? `Produto "${form.nome}" já existe.` : error.message });
     else {
-      setMsg({ t: "success", v: editId ? "Produto atualizado!" : `"${form.nome}" cadastrado!` });
-      setForm({ nome: "", estoque_inicial: 0, preco_normal: "", preco_da: "", preco_custo: "" });
-      setEditId(null); carregar();
+      setMsg({ t: "success", v: form.id ? "Produto atualizado!" : `"${form.nome}" cadastrado!` });
+      setTimeout(() => { setModal(null); setForm({ nome: "", estoque_inicial: 0, preco_normal: "", preco_da: "", preco_custo: "", ativo: true }); }, 1500);
+      carregar();
     }
     setLoad(false);
   };
 
-  const editar = (p) => {
-    setEditId(p.id);
-    setForm({ nome: p.nome, estoque_inicial: p.estoque_inicial, preco_normal: p.preco_normal, preco_da: p.preco_da, preco_custo: p.preco_custo });
+  const ajustarEstoque = async (e) => {
+    e.preventDefault();
+    setLoad(true);
+    const novoEstoque = stockForm.atual + Number(stockForm.ajuste);
+    const { error } = await supabase.from("produtos").update({ estoque_atual: novoEstoque }).eq("id", stockForm.id);
+    
+    if (error) alert("Erro ao ajustar estoque: " + error.message);
+    else {
+      setModal(null);
+      carregar();
+    }
+    setLoad(false);
+  };
+
+  const toggleAtivo = async (p) => {
+    const { error } = await supabase.from("produtos").update({ ativo: !p.ativo }).eq("id", p.id);
+    if (error) alert("Erro ao alterar status: " + error.message);
+    else carregar();
+  };
+
+  const abrirForm = (p = null) => {
+    setMsg(null);
+    if (p) {
+      setForm({ id: p.id, nome: p.nome, preco_normal: p.preco_normal, preco_da: p.preco_da, preco_custo: p.preco_custo, ativo: p.ativo });
+    } else {
+      setForm({ nome: "", estoque_inicial: 0, preco_normal: "", preco_da: "", preco_custo: "", ativo: true });
+    }
+    setModal('form');
+  };
+
+  const abrirEstoque = (p) => {
+    setStockForm({ id: p.id, nome: p.nome, atual: p.estoque_atual, ajuste: 0 });
+    setModal('stock');
   };
 
   const F = (field, label, opts = {}) => <Input label={label} value={form[field]} onChange={e => setForm({ ...form, [field]: e.target.value })} {...opts} />;
 
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
-      <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800, marginBottom: 24 }}>📦 Produtos</h1>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "start" }}>
-        <div style={{ flex: "1 1 340px", minWidth: 300 }}>
-          <Card>
-            <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16, fontSize: 14, color: C.muted, textTransform: "uppercase", letterSpacing: 1 }}>{editId ? "✏️ Editar Produto" : "➕ Novo Produto"}</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <Alert msg={msg?.v} type={msg?.t} onClose={() => setMsg(null)} />
-              {F("nome", "Nome do produto *", { placeholder: "Ex: Camiseta Preta XG" })}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {F("estoque_inicial", "Estoque inicial", { type: "number", min: 0 })}
-                {F("preco_normal", "Preço venda (R$) *", { type: "number", step: "0.01", placeholder: "0,00" })}
-                {F("preco_da", "Preço DA (R$)", { type: "number", step: "0.01", placeholder: "0,00" })}
-                {F("preco_custo", "Preço custo (R$)", { type: "number", step: "0.01", placeholder: "0,00" })}
-              </div>
-              <p style={{ fontSize: 11, color: C.muted }}>O custo calcula a margem de lucro no Dashboard.</p>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Btn variant="success" onClick={salvar} disabled={load} style={{ flex: 1 }}>{load ? "Salvando..." : editId ? "Salvar alterações" : "Cadastrar produto"}</Btn>
-                {editId && <Btn variant="ghost" onClick={() => { setEditId(null); setForm({ nome:"",estoque_inicial:0,preco_normal:"",preco_da:"",preco_custo:""}); }}>✕</Btn>}
-              </div>
-            </div>
-          </Card>
-        </div>
-        <div style={{ flex: "2 1 600px", minWidth: 300 }}>
-          <Card>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 500 }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                    {["Produto","Est.","Preço","Custo","Margem%","Margem DA%","Status",""].map(h => (
-                      <th key={h} style={{ padding: "8px 10px", color: C.muted, fontWeight: 500, textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {prods.map((p, i) => {
-                    const estColor = p.status_estoque === "Esgotado" ? C.red : p.status_estoque === "Baixo" ? C.gold : C.green;
-                    return (
-                      <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}22`, background: i % 2 === 0 ? "transparent" : "#ffffff04" }}>
-                        <td style={{ padding: "9px 10px", fontWeight: 500 }}>{p.nome}</td>
-                        <td style={{ padding: "9px 10px", color: estColor, fontWeight: 700 }}>{p.estoque_atual}</td>
-                        <td style={{ padding: "9px 10px" }}>{fmtR(p.preco_normal)}</td>
-                        <td style={{ padding: "9px 10px", color: C.muted }}>{fmtR(p.preco_custo)}</td>
-                        <td style={{ padding: "9px 10px" }}>
-                          {p.margem_normal_pct != null ? <span style={{ color: p.margem_normal_pct < 20 ? C.red : p.margem_normal_pct >= 40 ? C.green : C.gold }}>{fmtP(p.margem_normal_pct)}</span> : "—"}
-                        </td>
-                        <td style={{ padding: "9px 10px", color: C.purple }}>{p.margem_da_pct != null ? fmtP(p.margem_da_pct) : "—"}</td>
-                        <td style={{ padding: "9px 10px" }}><Badge color={estColor}>{p.status_estoque}</Badge></td>
-                        <td style={{ padding: "9px 10px" }}><button onClick={() => editar(p)} style={{ background: "none", border: "none", color: C.muted, fontSize: 16 }}>✏️</button></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {prods.length === 0 && <p style={{ color: C.muted, textAlign: "center", padding: 40 }}>Nenhum produto cadastrado ainda.</p>}
-            </div>
-          </Card>
-        </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+        <h1 style={{ fontFamily: "Syne", fontSize: 24, fontWeight: 800 }}>📦 Gestão de Produtos</h1>
+        <Btn onClick={() => abrirForm()}>+ Novo Produto</Btn>
       </div>
+
+      <Card>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 800 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                {["Produto","Estoque","Preço","Margem%","Status","Ações"].map(h => (
+                  <th key={h} style={{ padding: "12px 10px", color: C.muted, fontWeight: 500, textAlign: "left" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {prods.map((p, i) => {
+                const estColor = p.status_estoque === "Esgotado" ? C.red : p.status_estoque === "Baixo" ? C.gold : C.green;
+                return (
+                  <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}22`, background: i % 2 === 0 ? "transparent" : "#ffffff04", opacity: p.ativo ? 1 : 0.5 }}>
+                    <td style={{ padding: "12px 10px" }}>
+                      <div style={{ fontWeight: 600 }}>{p.nome}</div>
+                      <div style={{ fontSize: 10, color: C.muted }}>Custo: {fmtR(p.preco_custo)}</div>
+                    </td>
+                    <td style={{ padding: "12px 10px" }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: estColor, fontWeight: 800, fontSize: 15 }}>{p.estoque_atual}</span>
+                        <button onClick={() => abrirEstoque(p)} style={{ background: C.teal + '22', border: 'none', borderRadius: 4, padding: '2px 6px', color: C.teal, fontSize: 10, fontWeight: 700 }}>AJUSTAR</button>
+                      </div>
+                    </td>
+                    <td style={{ padding: "12px 10px" }}>
+                      <div style={{ fontWeight: 600 }}>{fmtR(p.preco_normal)}</div>
+                      {p.preco_da > 0 && <div style={{ fontSize: 10, color: C.gold }}>DA: {fmtR(p.preco_da)}</div>}
+                    </td>
+                    <td style={{ padding: "12px 10px" }}>
+                      {p.margem_normal_pct != null ? <span style={{ color: p.margem_normal_pct < 20 ? C.red : p.margem_normal_pct >= 40 ? C.green : C.gold, fontWeight: 600 }}>{fmtP(p.margem_normal_pct)}</span> : "—"}
+                    </td>
+                    <td style={{ padding: "12px 10px" }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <Badge color={estColor}>{p.status_estoque}</Badge>
+                        <Badge color={p.ativo ? C.green : C.muted}>{p.ativo ? "ATIVO" : "INATIVO"}</Badge>
+                      </div>
+                    </td>
+                    <td style={{ padding: "12px 10px" }}>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button onClick={() => abrirForm(p)} title="Editar" style={{ background: "none", border: "none", color: C.muted, fontSize: 18 }}>✏️</button>
+                        <button onClick={() => toggleAtivo(p)} title={p.ativo ? "Desativar" : "Ativar"} style={{ background: "none", border: "none", color: p.ativo ? C.red : C.green, fontSize: 18 }}>{p.ativo ? "🚫" : "✅"}</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {prods.length === 0 && <p style={{ color: C.muted, textAlign: "center", padding: 40 }}>Nenhum produto cadastrado ainda.</p>}
+        </div>
+      </Card>
+
+      {/* MODAL DE PRODUTO */}
+      {modal === 'form' && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <Card style={{ width: '100%', maxWidth: 500 }}>
+            <h2 style={{ fontFamily: 'Syne', marginBottom: 20 }}>{form.id ? '✏️ Editar Produto' : '➕ Novo Produto'}</h2>
+            <form onSubmit={salvar} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <Alert msg={msg?.v} type={msg?.t} onClose={() => setMsg(null)} />
+              {F("nome", "Nome do Produto *", { placeholder: "Ex: Camiseta Preta P" })}
+              
+              {!form.id && F("estoque_inicial", "Estoque Inicial", { type: "number", min: 0 })}
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {F("preco_normal", "Preço Venda (R$) *", { type: "number", step: "0.01" })}
+                {F("preco_da", "Preço DA (R$)", { type: "number", step: "0.01" })}
+              </div>
+              {F("preco_custo", "Preço de Custo (R$)", { type: "number", step: "0.01" })}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                <Btn variant="ghost" onClick={() => setModal(null)} style={{ flex: 1 }}>Cancelar</Btn>
+                <Btn type="submit" variant="success" disabled={load} style={{ flex: 1 }}>{load ? "Salvando..." : "Salvar Produto"}</Btn>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL DE ESTOQUE */}
+      {modal === 'stock' && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <Card style={{ width: '100%', maxWidth: 400 }}>
+            <h2 style={{ fontFamily: 'Syne', marginBottom: 10 }}>📦 Ajustar Estoque</h2>
+            <p style={{ color: C.muted, fontSize: 14, marginBottom: 20 }}>{stockForm.nome}</p>
+            
+            <form onSubmit={ajustarEstoque} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{ background: C.bg, padding: 16, borderRadius: 12, textAlign: 'center' }}>
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Estoque Atual</div>
+                <div style={{ fontSize: 32, fontWeight: 800, color: C.text }}>{stockForm.atual}</div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ fontSize: 12, color: C.muted }}>Ajuste (use negativos para remover)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button type="button" onClick={() => setStockForm({...stockForm, ajuste: stockForm.ajuste - 1})} style={{ width: 40, height: 40, borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.text, fontSize: 20 }}>-</button>
+                  <input 
+                    type="number" 
+                    value={stockForm.ajuste} 
+                    onChange={e => setStockForm({...stockForm, ajuste: parseInt(e.target.value) || 0})}
+                    style={{ flex: 1, height: 40, background: '#0A1628', border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, textAlign: 'center', fontSize: 18, fontWeight: 700 }}
+                  />
+                  <button type="button" onClick={() => setStockForm({...stockForm, ajuste: stockForm.ajuste + 1})} style={{ width: 40, height: 40, borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.text, fontSize: 20 }}>+</button>
+                </div>
+              </div>
+
+              <div style={{ background: C.teal + '11', padding: 12, borderRadius: 10, textAlign: 'center', border: `1px solid ${C.teal}33` }}>
+                <span style={{ fontSize: 13, color: C.muted }}>Novo Estoque: </span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: C.teal }}>{stockForm.atual + Number(stockForm.ajuste)}</span>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Btn variant="ghost" onClick={() => setModal(null)} style={{ flex: 1 }}>Cancelar</Btn>
+                <Btn type="submit" variant="success" disabled={load} style={{ flex: 1 }}>Confirmar</Btn>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
@@ -1121,6 +1234,7 @@ function Historico() {
                   <td style={{ padding: "9px 12px", color: C.muted }}>{v.forma_pagamento}</td>
                   <td style={{ padding: "9px 12px" }}><Badge color={STATUS_COLOR[v.status] || C.muted}>{v.status}</Badge></td>
                   <td style={{ padding: "9px 12px" }}>
+                    <div style={{ display: 'flex', gap: 12 }}>
                       <button onClick={() => {
                         const msg = `*PEDIDO CONFIRMADO* \u2705\n\nOlá ${v.comprador}, seu pedido de *${v.quantidade}x ${v.produto_nome}* foi registrado!\n\n\ud83d\udcb0 *Total:* ${fmtR(v.preco_venda * v.quantidade)}\n\nVou te enviar a chave PIX na próxima mensagem para facilitar a cópia! \ud83d\udc47`;
                         const tel = v.whatsapp ? v.whatsapp : "";
