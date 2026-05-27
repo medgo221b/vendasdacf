@@ -656,6 +656,8 @@ function NovaVenda() {
       } else {
         // --- LÓGICA ATÔMICA PARA PRODUTO ---
         const p = prods.find(p => p.id === it.prodId);
+        console.log("Tentando registrar venda via RPC para:", p.nome);
+        
         const { data: res, error: errRpc } = await supabase.rpc("registrar_venda_segura", {
           p_produto_id: it.prodId,
           p_comprador: comprador.trim(),
@@ -668,9 +670,16 @@ function NovaVenda() {
         });
 
         if (errRpc) {
-          erros.push(`Erro técnico: ${errRpc.message}`);
-        } else if (!res.sucesso) {
-          erros.push(res.mensagem); // Aqui pegamos o "Estoque Insuficiente" direto do banco
+          console.error("Erro no RPC Supabase:", errRpc);
+          erros.push(`Erro no banco: ${errRpc.message} (Código: ${errRpc.code}). Verifique se rodou o SQL no painel.`);
+        } else if (res && !res.sucesso) {
+          console.warn("Venda recusada pelo banco:", res.mensagem);
+          erros.push(res.mensagem); 
+        } else if (!res) {
+          console.error("Resposta nula do RPC. A função 'registrar_venda_segura' existe no SQL Editor?");
+          erros.push("Erro interno: A função de segurança não respondeu. Certifique-se de rodar o SQL no Supabase.");
+        } else {
+          console.log("Venda registrada com sucesso no banco!");
         }
       }
     }
