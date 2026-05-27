@@ -1297,6 +1297,7 @@ function Financeiro() {
   const [movimentos, setMovs]   = useState([]);
   const [vendasHoje, setVendas] = useState([]);
   const [loading, setLoading]   = useState(true);
+  const [load, setLoad]         = useState(false);
   
   const [showFechar, setShow] = useState(false);
   const [showGasto, setShowGasto] = useState(false);
@@ -1325,23 +1326,40 @@ function Financeiro() {
 
   const fecharCaixa = async (e) => {
     e.preventDefault();
+    setLoad(true);
     const dataAlvo = conferido.data_fechamento || hoje();
     
-    const { error } = await supabase.rpc("fechar_ou_atualizar_caixa", {
-      p_data: dataAlvo,
-      p_esp_dinheiro: conferido.id ? conferido.valor_esperado_dinheiro : totalSistema.dinheiro,
-      p_inf_dinheiro: Number(conferido.dinheiro) || 0,
-      p_esp_pix: conferido.id ? conferido.valor_esperado_pix : totalSistema.pix,
-      p_inf_pix: Number(conferido.pix) || 0,
-      p_obs: conferido.observacao
-    });
+    const payload = {
+      data_fechamento: dataAlvo,
+      valor_esperado_dinheiro: conferido.id ? conferido.valor_esperado_dinheiro : totalSistema.dinheiro,
+      valor_informado_dinheiro: Number(conferido.dinheiro) || 0,
+      valor_esperado_pix: conferido.id ? conferido.valor_esperado_pix : totalSistema.pix,
+      valor_informado_pix: Number(conferido.pix) || 0,
+      observacao: conferido.observacao
+    };
 
-    if (error) alert("Erro ao salvar: " + error.message);
-    else {
+    let error;
+    if (conferido.id) {
+      const { error: err } = await supabase.from("caixas").update(payload).eq("id", conferido.id);
+      error = err;
+    } else {
+      // Tenta inserir, se já existir um registro para o dia, o Supabase retornará erro se houver constraint UNIQUE na data
+      const { error: err } = await supabase.from("caixas").insert(payload);
+      error = err;
+    }
+
+    if (error) {
+      if (error.message.includes("unique") || error.code === "23505") {
+        alert("Já existe um fechamento para esta data. Edite o registro existente ou exclua-o.");
+      } else {
+        alert("Erro ao salvar: " + error.message);
+      }
+    } else {
       setShow(false);
       setConf({ dinheiro: "", pix: "", observacao: "", id: null });
       carregar();
     }
+    setLoad(false);
   };
 
   const salvarGasto = async (e) => {
