@@ -619,82 +619,65 @@ function NovaVenda() {
     }
 
     setLoad(true); setMsg(null);
-
-    // --- RE-VALIDAÇÃO DE ESTOQUE EM TEMPO REAL (ANTI-STALE) ---
-    const { data: freshProds } = await supabase.from("produtos").select("id, nome, estoque_atual").in("id", validos.filter(it => !it.isKit).map(it => it.prodId));
-    
-    for (const it of validos) {
-      if (it.isKit) {
-        // Para kits, buscamos os itens do kit novamente
-        const kit = kits.find(k => k.id === it.prodId);
-        const prodIdsNoKit = kit.kit_itens.map(ki => ki.produto_id);
-        const { data: freshKitProds } = await supabase.from("produtos").select("id, nome, estoque_atual").in("id", prodIdsNoKit);
-        
-        for (const ki of kit.kit_itens) {
-          const fp = freshKitProds?.find(p => p.id === ki.produto_id);
-          if (!fp || fp.estoque_atual < (ki.quantidade * it.qtd)) {
-            setLoad(false);
-            return setMsg({ t: "error", v: `Estoque real insuficiente para "${fp?.nome}" no kit.` });
-          }
-        }
-      } else {
-        const fp = freshProds?.find(p => p.id === it.prodId);
-        if (!fp || fp.estoque_atual < it.qtd) {
-          setLoad(false);
-          return setMsg({ t: "error", v: `Estoque real insuficiente para "${fp?.nome}". Disponível: ${fp?.estoque_atual || 0}` });
-        }
-      }
-    }
-
     let erros = [];
     const whatsLimpo = whatsapp.replace(/\D/g, "");
 
     for (const it of validos) {
-      const payload = {
-        comprador: comprador.trim(),
-        whatsapp: whatsLimpo || null,
-        turma: turma.trim(),
-        data_venda: data,
-        quantidade: it.qtd,
-        forma_pagamento: pgto,
-        status: "Pago e Entregue"
-      };
-
       if (it.isKit) {
+        // --- LÓGICA DE KIT ---
         const kit = kits.find(k => k.id === it.prodId);
-        const { error } = await supabase.from("vendas").insert({
-          ...payload,
-          produto_nome: `[KIT] ${kit.nome}`,
-          preco_venda: kit.preco_venda
-        });
         
-        if (error) erros.push(`Erro no kit: ${error.message}`);
-        else {
-          for (const ki of kit.kit_itens) {
-            await supabase.rpc("ajustar_estoque", { p_id: ki.produto_id, p_qtd: -(ki.quantidade * it.qtd) });
+        // Primeiro verificamos estoque de todos os itens do kit
+        let estoqueOk = true;
+        for (const ki of kit.kit_itens) {
+          const { data: p } = await supabase.from("produtos").select("estoque_atual").eq("id", ki.produto_id).single();
+          if (!p || p.estoque_atual < (ki.quantidade * it.qtd)) {
+            erros.push(`Estoque insuficiente para item do kit: ${kit.nome}`);
+            estoqueOk = false;
+            break;
+          }
+        }
+
+        if (estoqueOk) {
+          const { error: errVenda } = await supabase.from("vendas").insert({
+            comprador: comprador.trim(), whatsapp: whatsLimpo || null, turma: turma.trim(),
+            data_venda: data, quantidade: it.qtd, forma_pagamento: pgto, status: "Pago e Entregue",
+            produto_nome: `[KIT] ${kit.nome}`, preco_venda: kit.preco_venda
+          });
+
+          if (errVenda) {
+            erros.push(`Erro ao registrar kit: ${errVenda.message}`);
+          } else {
+            for (const ki of kit.kit_itens) {
+              await supabase.rpc("ajustar_estoque", { p_id: ki.produto_id, p_qtd: -(ki.quantidade * it.qtd) });
+            }
           }
         }
       } else {
+        // --- LÓGICA ATÔMICA PARA PRODUTO ---
         const p = prods.find(p => p.id === it.prodId);
-        const { error } = await supabase.from("vendas").insert({
-          ...payload,
-          produto_id: it.prodId,
-          produto_nome: p.nome,
-          preco_venda: p.preco_normal
+        const { data: res, error: errRpc } = await supabase.rpc("registrar_venda_segura", {
+          p_produto_id: it.prodId,
+          p_comprador: comprador.trim(),
+          p_whatsapp: whatsLimpo || null,
+          p_turma: turma.trim(),
+          p_data_venda: data,
+          p_quantidade: it.qtd,
+          p_preco_venda: p.preco_normal,
+          p_forma_pagamento: pgto
         });
 
-        if (error) {
-          erros.push(`Erro na venda: ${error.message}`);
-        } else {
-          // DIMINUIR ESTOQUE DO PRODUTO INDIVIDUAL
-          await supabase.rpc("ajustar_estoque", { p_id: it.prodId, p_qtd: -it.qtd });
+        if (errRpc) {
+          erros.push(`Erro técnico: ${errRpc.message}`);
+        } else if (!res.sucesso) {
+          erros.push(res.mensagem); // Aqui pegamos o "Estoque Insuficiente" direto do banco
         }
       }
     }
 
     if (erros.length) setMsg({ t: "error", v: erros.join(" | ") });
     else {
-      setMsg({ t: "success", v: "Venda registrada!" });
+      setMsg({ t: "success", v: "Venda registrada com sucesso!" });
       setItens([{ prodId: "", qtd: 1, isKit: false }]);
       setComprador(""); setWhatsapp(""); setTurma("");
       
@@ -707,6 +690,7 @@ function NovaVenda() {
       setKits(k || []);
     }
     setLoad(false);
+  };
   };
 
   return (
